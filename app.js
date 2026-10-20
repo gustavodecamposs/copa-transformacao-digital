@@ -13,7 +13,8 @@
       historico: [],
       campeonatoAtual: null,
       tema: { destaque: Copa.DESTAQUES[0] },
-      selecao: ['p1', 'p2', 'p3']
+      selecao: ['p1', 'p2', 'p3'],
+      modoVivo: 'placar'
     };
   }
 
@@ -36,7 +37,8 @@
       historico: dados.historico,
       campeonatoAtual: campeonato,
       tema: dados.tema && Copa.DESTAQUES.includes(dados.tema.destaque) ? dados.tema : { destaque: Copa.DESTAQUES[0] },
-      selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES)
+      selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
+      modoVivo: dados.modoVivo === 'chave' ? 'chave' : 'placar'
     };
   }
 
@@ -59,7 +61,8 @@
     placarAnterior: null,
     desempateRevelado: null,
     sorteandoDesempate: false,
-    celebrou: null
+    celebrou: null,
+    diff: null
   };
 
   /* ================= utilidades ================= */
@@ -113,6 +116,8 @@
     subir: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>',
     reiniciar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 3.5v5h5"/></svg>',
     mais: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    placar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14M7.5 10v4M15 10h2.5v4H15z"/></svg>',
+    chave: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h6v5H3zM3 14h6v5H3z"/><path d="M9 7.5h3v9H9M12 12h3"/><rect x="15" y="9.5" width="6" height="5"/></svg>',
     alerta: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>'
   };
 
@@ -464,13 +469,18 @@
     return s.golsA + '–' + s.golsB;
   }
 
-  function slot(id, rolar) {
+  function slot(id, rolar, chega) {
     const txt = id ? esc(nome(id)) : '';
-    return '<span class="slot' + (rolar ? ' rolando' : '') + '"' + (rolar ? ' data-final="' + txt + '"' : '') + '>' + txt + '</span>';
+    const cls = 'slot' + (rolar ? ' rolando' : '') + (chega ? ' chega' : '');
+    return '<span class="' + cls + '"' + (rolar ? ' data-final="' + txt + '"' : '') + '>' + txt + '</span>';
   }
 
-  function cartaoFase1(c, m, atualId, rolar, idx) {
-    const estadoCls = m.vencedor ? 'encerrada' : (m.id === atualId ? 'jogando' : '');
+  const chegou = (vivo, m, lado) => !!(vivo && m && vivo.chegou.has(m.id + ':' + lado));
+  const clsAcabou = (vivo, m) => vivo && m && vivo.acabou === m.id ? ' acabou' : '';
+  const clsBump = (vivo, m) => vivo && m && vivo.mudou === m.id ? ' bump' : '';
+
+  function cartaoFase1(c, m, atualId, rolar, idx, vivo) {
+    const estadoCls = (m.vencedor ? 'encerrada' : (m.id === atualId ? 'jogando' : '')) + clsAcabou(vivo, m);
     const num = id => c.participantes.length >= 4 ? '<span class="num">#' + c.numeros[id] + '</span>' : '';
     const cls = id => m.vencedor && m.vencedor !== id ? ' class="perdeu"' : '';
     const quemPrimeiro = m.primeiro === 'a' ? m.a : m.b;
@@ -482,58 +492,58 @@
       '<article class="cartao ' + estadoCls + '" data-lock="' + idx + '">' +
         '<div class="cartao-linha">' +
           '<div class="confronto"><span' + cls(m.a) + '>' + num(m.a) + slot(m.a, rolar) + '</span><span class="x">×</span><span' + cls(m.b) + '>' + num(m.b) + slot(m.b, rolar) + '</span></div>' +
-          '<span class="placar-mini">' + placarDe(m) + '</span>' +
+          '<span class="placar-mini' + clsBump(vivo, m) + '">' + placarDe(m) + '</span>' +
         '</div>' +
         '<div class="meta">' + meta + '</div>' +
       '</article>';
   }
 
-  function cartaoSemi(c, m, idx, atualId) {
+  function cartaoSemi(c, m, idx, atualId, vivo) {
     const n = c.participantes.length;
     let a, b;
     if (m) {
-      a = esc(nome(m.a)); b = esc(nome(m.b));
+      a = slot(m.a, false, chegou(vivo, m, 'a')); b = slot(m.b, false, chegou(vivo, m, 'b'));
     } else if (n === 3) {
       a = '2º'; b = '3º';
     } else {
       a = idx === 0 ? '1º' : '2º'; b = idx === 0 ? '4º' : '3º';
     }
-    const vivo = m && m.id === atualId;
+    const emJogo = m && m.id === atualId;
     const titulo = n === 3 ? 'Semi' : 'Semi ' + (idx + 1);
     return '' +
-      '<article class="cartao cartao-semi' + (vivo ? ' jogando' : '') + (m ? '' : ' pendente') + '">' +
-        '<div class="titulo-semi">' + titulo + (vivo ? ' · em jogo' : '') + '</div>' +
+      '<article class="cartao cartao-semi' + (emJogo ? ' jogando' : '') + (m ? '' : ' pendente') + clsAcabou(vivo, m) + '">' +
+        '<div class="titulo-semi">' + titulo + (emJogo ? ' · em jogo' : '') + '</div>' +
         '<div class="cartao-linha" style="justify-content:center">' +
           '<div class="confronto" style="justify-content:center;font-size:' + (m ? '17px' : '22px') + '">' +
             '<span' + (m && m.vencedor && m.vencedor !== m.a ? ' class="perdeu"' : '') + '>' + a + '</span><span class="x">×</span>' +
             '<span' + (m && m.vencedor && m.vencedor !== m.b ? ' class="perdeu"' : '') + '>' + b + '</span>' +
           '</div>' +
         '</div>' +
-        (m && m.cobrancas.length ? '<div class="placar-mini" style="text-align:center;margin-top:4px">' + placarDe(m) + '</div>' : '') +
+        (m && m.cobrancas.length ? '<div style="text-align:center;margin-top:4px"><span class="placar-mini' + clsBump(vivo, m) + '">' + placarDe(m) + '</span></div>' : '') +
       '</article>';
   }
 
-  function cartaoFinal(c, atualId, rolar) {
+  function cartaoFinal(c, atualId, rolar, vivo) {
     const n = c.participantes.length;
     const f = c.final;
-    const vagaA = f && f.a ? slot(f.a, rolar) : (n === 3 ? '1º da Fase 1' : 'Vencedor da semi 1');
-    const vagaB = f && f.b ? slot(f.b, rolar) : (n === 3 ? 'Vencedor da semi' : 'Vencedor da semi 2');
-    const vivo = f && f.id === atualId;
+    const vagaA = f && f.a ? slot(f.a, rolar, chegou(vivo, f, 'a')) : (n === 3 ? '1º da Fase 1' : 'Vencedor da semi 1');
+    const vagaB = f && f.b ? slot(f.b, rolar, chegou(vivo, f, 'b')) : (n === 3 ? 'Vencedor da semi' : 'Vencedor da semi 2');
+    const emJogo = f && f.id === atualId;
     return '' +
-      '<article class="cartao cartao-final' + (vivo ? ' jogando' : '') + '">' +
-        '<div class="titulo-final">Final' + (vivo ? ' · em jogo' : '') + '</div>' +
+      '<article class="cartao cartao-final' + (emJogo ? ' jogando' : '') + clsAcabou(vivo, f) + '">' +
+        '<div class="titulo-final">Final' + (emJogo ? ' · em jogo' : '') + '</div>' +
         '<div class="vaga' + (f && f.a ? '' : ' vazia') + (f && f.vencedor && f.vencedor !== f.a ? ' perdeu' : '') + '">' + vagaA + '</div>' +
         '<div class="vaga' + (f && f.b ? '' : ' vazia') + (f && f.vencedor && f.vencedor !== f.b ? ' perdeu' : '') + '">' + vagaB + '</div>' +
-        (f && f.cobrancas.length ? '<div class="placar-mini" style="margin-top:8px">' + placarDe(f) + '</div>' : '') +
+        (f && f.cobrancas.length ? '<div style="margin-top:8px"><span class="placar-mini' + clsBump(vivo, f) + '">' + placarDe(f) + '</span></div>' : '') +
       '</article>';
   }
 
-  function chaveamento(c, rolar) {
+  function chaveamento(c, rolar, vivo) {
     const n = c.participantes.length;
     const atual = Copa.partidaAtual(c);
     const atualId = atual && atual.a && atual.b ? atual.id : null;
 
-    const final = cartaoFinal(c, atualId, rolar);
+    const final = cartaoFinal(c, atualId, rolar, vivo);
     const selo = '<div class="haste"></div>' +
       '<div class="selo' + (c.campeao ? ' carimba' : '') + '">' + (c.campeao ? '<small>Campeão</small>' + esc(nome(c.campeao)) : 'Campeão') + '</div>';
 
@@ -542,13 +552,13 @@
     }
 
     const fase1 = '<div class="col"><p class="col-rotulo">Fase 1 · 5 chutes cada</p>' +
-      c.fase1.map((m, i) => cartaoFase1(c, m, atualId, rolar, i)).join('') + '</div>';
+      c.fase1.map((m, i) => cartaoFase1(c, m, atualId, rolar, i, vivo)).join('') + '</div>';
 
     let semis;
     if (n === 3) {
-      semis = '<div class="col"><div class="direto">1º direto</div>' + cartaoSemi(c, c.semis[0], 0, atualId) + '</div>';
+      semis = '<div class="col"><div class="direto">1º direto</div>' + cartaoSemi(c, c.semis[0], 0, atualId, vivo) + '</div>';
     } else {
-      semis = '<div class="col"><p class="col-rotulo">Semifinais</p>' + cartaoSemi(c, c.semis[0], 0, atualId) + cartaoSemi(c, c.semis[1], 1, atualId) + '</div>';
+      semis = '<div class="col"><p class="col-rotulo">Semifinais</p>' + cartaoSemi(c, c.semis[0], 0, atualId, vivo) + cartaoSemi(c, c.semis[1], 1, atualId, vivo) + '</div>';
     }
 
     return '<div class="chave">' + fase1 + '<div class="liga" aria-hidden="true"></div>' + semis +
@@ -732,6 +742,87 @@
     return 'Final';
   }
 
+  function todasPartidas(c) {
+    return c.fase1.concat(c.semis).concat(c.final ? [c.final] : []);
+  }
+
+  // O que mudou na chave entre dois estados: alimenta as animações do modo Chave.
+  function diferenca(antes, depois) {
+    const r = { mudou: null, acabou: null, chegou: new Set() };
+    if (!antes || !depois || antes.id !== depois.id) return r;
+    const anterior = new Map(todasPartidas(antes).map(m => [m.id, m]));
+    for (const m of todasPartidas(depois)) {
+      const a = anterior.get(m.id);
+      if (a && a.cobrancas.length !== m.cobrancas.length) r.mudou = m.id;
+      if (m.vencedor && (!a || !a.vencedor)) r.acabou = m.id;
+      for (const lado of ['a', 'b']) {
+        if (m[lado] && (!a || !a[lado])) r.chegou.add(m.id + ':' + lado);
+      }
+    }
+    return r;
+  }
+
+  function seletorModo() {
+    const b = (modo, rotulo, icone) =>
+      '<button class="seg" data-modo="' + modo + '" aria-pressed="' + (estado.modoVivo === modo) + '">' + icone + rotulo + '</button>';
+    return '<div class="segmento" role="group" aria-label="Visualização do ao vivo">' +
+      b('placar', 'Placar', ICONE.placar) + b('chave', 'Chave', ICONE.chave) + '</div>';
+  }
+
+  function textoProximo(c, m) {
+    if (c.estado === 'encerrado') return 'Ver campeão';
+    if (c.empatePendente) return 'Ir para o desempate';
+    if (c.estado === 'semis' && c.fase1.length && c.fase1[c.fase1.length - 1] === m) return 'Ir para a semifinal';
+    if (c.estado === 'final' && m !== c.final && c.semis.indexOf(m) === c.semis.length - 1) return 'Ir para a final';
+    return 'Próxima partida';
+  }
+
+  function viewChaveVivo(c, m, encerrada) {
+    const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
+    const vivo = ui.diff;
+    ui.diff = null;
+    const novoIdx = ui.novoMarcador;
+    ui.novoMarcador = null;
+    const chute = ui.ultimoChute;
+    ui.ultimoChute = null;
+
+    const flash = chute
+      ? '<div class="anuncio ' + (chute === 'gol' ? 'gol' : 'erro') + '" aria-hidden="true">' + (chute === 'gol' ? 'Gol' : chute === 'trave' ? 'Na trave' : 'Pra fora') + '</div>'
+      : '';
+    const desfazerBtn = '<button class="btn btn-linha icone-so" id="desfazer" aria-label="Desfazer última cobrança" title="Desfazer última cobrança" ' +
+      (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + '</button>';
+
+    let acao;
+    if (encerrada) {
+      acao = '' +
+        '<p class="mini-venc"><span>' + esc(nome(m.vencedor)) + '</span> vence ' + s.golsA + ' × ' + s.golsB + '</p>' +
+        '<div class="rodape-vivo" style="margin-top:12px"><button class="btn btn-acc" id="proxima">' + textoProximo(c, m) + ICONE.seta + '</button></div>';
+    } else {
+      const daVez = s.vez === 'a' ? m.a : m.b;
+      acao = '' +
+        '<div class="cobrar compacto-btns">' +
+          '<button class="chute chute-gol" id="gol">Gol<small>' + esc(nome(daVez)) + '</small></button>' +
+          '<button class="chute chute-erro" id="errou">Errou<small>' + esc(nome(daVez)) + '</small></button>' +
+        '</div>' +
+        '<p class="sr" aria-live="assertive">Vez de ' + esc(nome(daVez)) + '. Placar ' + s.golsA + ' a ' + s.golsB + '.</p>';
+    }
+
+    const rotulo = rotuloPartida(c, m) + (encerrada ? ' · fim de jogo' : s.morteSubita ? ' · morte súbita' : '');
+    const mostraTabela = c.fase1.length && (c.estado === 'fase1' || c.fase1.indexOf(m) >= 0);
+
+    return seletorModo() +
+      '<section class="painel mini-vivo" aria-labelledby="t-mini">' +
+        '<div class="mini-topo"><h2 class="fase-rotulo" id="t-mini">' + rotulo + '</h2>' + desfazerBtn + '</div>' +
+        '<div class="compacto">' + blocoPlacar(m, s, novoIdx) + flash + '</div>' +
+        acao +
+      '</section>' +
+      '<section class="painel" aria-labelledby="t-chave-vivo">' +
+        '<h2 class="painel-titulo" id="t-chave-vivo">Chaveamento <span class="contador">' + rotuloEstado(c) + '</span></h2>' +
+        chaveamento(c, false, vivo) +
+      '</section>' +
+      (mostraTabela ? tabelaClassificacao(c) : '');
+  }
+
   function marcador(c, novo) {
     if (!c) return '<svg class="marc" viewBox="0 0 22 22" aria-hidden="true"><circle class="anel" cx="11" cy="11" r="9"/></svg>';
     if (c.gol) return '<svg class="marc' + (novo ? ' novo' : '') + '" viewBox="0 0 22 22" aria-hidden="true"><circle class="cheio" cx="11" cy="11" r="10"/></svg>';
@@ -793,9 +884,10 @@
         '</section>';
     }
 
+    const modoChave = estado.modoVivo === 'chave';
     if (ui.resultadoVisivel) {
       const m = acharPartida(c, ui.resultadoVisivel);
-      if (m && m.vencedor) return viewResultado(c, m);
+      if (m && m.vencedor) return modoChave ? viewChaveVivo(c, m, true) : viewResultado(c, m);
       ui.resultadoVisivel = null;
     }
     if (c.estado === 'encerrado') return viewCampeao(c);
@@ -803,6 +895,8 @@
 
     const m = Copa.partidaAtual(c);
     if (!m || !m.a || !m.b) return '<section class="painel vazio"><h2>Aguardando a próxima partida</h2></section>';
+    if (modoChave) return viewChaveVivo(c, m, false);
+    ui.diff = null;
 
     const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
     const novoIdx = ui.novoMarcador;
@@ -813,7 +907,7 @@
       ? c.fase1.filter(x => !x.vencedor && x !== m).slice(0, 3)
       : [];
 
-    return '' +
+    return seletorModo() +
       '<section class="painel palco" aria-labelledby="t-vivo">' +
         '<h2 class="fase-rotulo" id="t-vivo">' + rotuloPartida(c, m) + '</h2>' +
         artePalco() +
@@ -841,13 +935,10 @@
   function viewResultado(c, m) {
     const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
     const perdedor = m.vencedor === m.a ? m.b : m.a;
-    let proximo = 'Próxima partida';
-    if (c.estado === 'encerrado') proximo = 'Ver campeão';
-    else if (c.empatePendente) proximo = 'Ir para o desempate';
-    else if (c.estado === 'semis' && c.fase1.length && c.fase1[c.fase1.length - 1] === m) proximo = 'Ir para a semifinal';
-    else if (c.estado === 'final' && m !== c.final && c.semis.indexOf(m) === c.semis.length - 1) proximo = 'Ir para a final';
+    const proximo = textoProximo(c, m);
+    ui.diff = null;
 
-    return '' +
+    return seletorModo() +
       '<section class="painel palco fim-jogo" aria-labelledby="t-fim">' +
         '<h2 class="fase-rotulo" id="t-fim">' + rotuloPartida(c, m) + ' · fim de jogo</h2>' +
         artePalco() +
@@ -949,6 +1040,18 @@
     const irCamp = $('#irCamp');
     if (irCamp) irCamp.addEventListener('click', () => irPara('campeonato'));
 
+    document.querySelectorAll('[data-modo]').forEach(b => {
+      b.addEventListener('click', () => {
+        if (estado.modoVivo === b.dataset.modo) return;
+        estado.modoVivo = b.dataset.modo;
+        salvar();
+        abaRenderizada = null;
+        render();
+        const ativo = document.querySelector('[data-modo="' + estado.modoVivo + '"]');
+        if (ativo) ativo.focus();
+      });
+    });
+
     const gol = $('#gol'), errou = $('#errou');
     if (gol) gol.addEventListener('click', () => cobrar(true));
     if (errou) errou.addEventListener('click', () => cobrar(false));
@@ -984,6 +1087,7 @@
     const idx = m.cobrancas.length;
     const depois = Copa.registrarCobranca(c, gol);
     if (depois === c) return;
+    ui.diff = diferenca(c, depois);
     estado.campeonatoAtual = depois;
     ui.ultimoChute = gol ? 'gol' : (Math.random() < 0.5 ? 'fora' : 'trave');
     ui.novoMarcador = idx;
@@ -1002,6 +1106,7 @@
     const c = estado.campeonatoAtual;
     if (!Copa.podeDesfazer(c)) return;
     estado.campeonatoAtual = Copa.desfazer(c);
+    ui.diff = null;
     ui.resultadoVisivel = null;
     ui.desempateRevelado = null;
     ui.placarAnterior = null;
@@ -1182,7 +1287,8 @@
               historico: dados.historico,
               campeonatoAtual: dados.campeonatoAtual ? Copa.derivar(dados.campeonatoAtual) : null,
               tema: dados.tema || { destaque: Copa.DESTAQUES[0] },
-              selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES)
+              selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
+              modoVivo: estado.modoVivo
             };
             Object.assign(ui, { resultadoVisivel: null, desempateRevelado: null, placarAnterior: null });
             aplicarTema();
