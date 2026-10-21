@@ -3,7 +3,6 @@
 
   const MIN_JOGADORES = 2;
   const MAX_JOGADORES = 8;
-  const COBRANCAS_REGULARES = 5;
   const DESTAQUES = ['#C6F432', '#FFD23F', '#5EE6C0'];
 
   function gerarId(prefixo) {
@@ -29,33 +28,15 @@
     return null;
   }
 
-  /* ---------- série de pênaltis ---------- */
+  /* ---------- resultado da partida ---------- */
 
-  function estadoSerie(cobrancas, primeiro) {
-    let golsA = 0, golsB = 0, chutesA = 0, chutesB = 0;
-    for (const c of cobrancas) {
-      if (c.lado === 'a') { chutesA++; if (c.gol) golsA++; }
-      else { chutesB++; if (c.gol) golsB++; }
+  function estadoSerie(resultado) {
+    if (!resultado) {
+      return { golsA: 0, golsB: 0, terminou: false, vencedor: null };
     }
-    const segundo = primeiro === 'a' ? 'b' : 'a';
-    let vencedor = null;
-
-    if (chutesA < COBRANCAS_REGULARES || chutesB < COBRANCAS_REGULARES) {
-      const restamA = COBRANCAS_REGULARES - chutesA;
-      const restamB = COBRANCAS_REGULARES - chutesB;
-      if (golsA > golsB + restamB) vencedor = 'a';
-      else if (golsB > golsA + restamA) vencedor = 'b';
-    } else if (chutesA === chutesB && golsA !== golsB) {
-      vencedor = golsA > golsB ? 'a' : 'b';
-    }
-
-    return {
-      golsA, golsB, chutesA, chutesB,
-      terminou: vencedor !== null,
-      vencedor,
-      morteSubita: cobrancas.length >= COBRANCAS_REGULARES * 2,
-      vez: vencedor ? null : (cobrancas.length % 2 === 0 ? primeiro : segundo)
-    };
+    const golsA = resultado.golsA, golsB = resultado.golsB;
+    const vencedor = golsA === golsB ? null : (golsA > golsB ? 'a' : 'b');
+    return { golsA, golsB, terminou: vencedor !== null, vencedor };
   }
 
   /* ---------- sorteio da fase 1 ---------- */
@@ -161,18 +142,22 @@
     desempates = desempates || [];
     const st = {};
     participantes.forEach(id => {
-      st[id] = { id, j: 0, v: 0, d: 0, gp: 0, gc: 0, sg: 0, pts: 0 };
+      st[id] = { id, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0, pts: 0 };
     });
     for (const m of partidas) {
-      if (!m.vencedor) continue;
-      const s = estadoSerie(m.cobrancas, m.primeiro);
+      if (!m.encerrada) continue;
+      const s = estadoSerie(m.resultado);
       const A = st[m.a], B = st[m.b];
       A.j++; B.j++;
       A.gp += s.golsA; A.gc += s.golsB;
       B.gp += s.golsB; B.gc += s.golsA;
-      const venc = m.vencedor === m.a ? A : B;
-      const perd = m.vencedor === m.a ? B : A;
-      venc.v++; venc.pts += 3; perd.d++;
+      if (!m.vencedor) {
+        A.e++; B.e++; A.pts++; B.pts++;
+      } else {
+        const venc = m.vencedor === m.a ? A : B;
+        const perd = m.vencedor === m.a ? B : A;
+        venc.v++; venc.pts += 3; perd.d++;
+      }
     }
     const linhas = Object.values(st);
     linhas.forEach(l => { l.sg = l.gp - l.gc; });
@@ -223,14 +208,18 @@
   }
 
   function novaPartida(id, a, b, primeiro, extra) {
-    return Object.assign({ id, a, b, primeiro, cobrancas: [], vencedor: null }, extra || {});
+    return Object.assign({ id, a, b, primeiro, resultado: null, vencedor: null, encerrada: false }, extra || {});
   }
 
   function partidaAtual(c) {
-    if (c.estado === 'fase1') return c.fase1.find(m => !m.vencedor) || null;
+    if (c.estado === 'fase1') return c.fase1.find(m => !m.encerrada) || null;
     if (c.estado === 'semis') return c.semis.find(m => !m.vencedor) || null;
     if (c.estado === 'final') return c.final && !c.final.vencedor ? c.final : null;
     return null;
+  }
+
+  function permiteEmpate(c, m) {
+    return c.fase1.indexOf(m) >= 0;
   }
 
   function vagasDecisivas(n) {
@@ -240,7 +229,7 @@
   function avancar(c) {
     const n = c.participantes.length;
 
-    if (c.estado === 'fase1' && c.fase1.every(m => m.vencedor)) {
+    if (c.estado === 'fase1' && c.fase1.every(m => m.encerrada)) {
       const { tabela, pendentes } = classificar(c.participantes, c.fase1, c.desempates);
       const limite = vagasDecisivas(n);
       const relevante = pendentes.find(g =>
@@ -303,13 +292,15 @@
     }
 
     for (const ev of c.eventos) {
-      if (ev.tipo === 'cobranca') {
+      if (ev.tipo === 'resultado') {
         const m = partidaAtual(c);
-        if (!m || !m.a || !m.b) throw new Error('Evento de cobrança sem partida em andamento.');
-        const s = estadoSerie(m.cobrancas, m.primeiro);
-        m.cobrancas.push({ lado: s.vez, gol: !!ev.gol });
-        const depois = estadoSerie(m.cobrancas, m.primeiro);
-        if (depois.terminou) m.vencedor = depois.vencedor === 'a' ? m.a : m.b;
+        if (!m || !m.a || !m.b) throw new Error('Evento de resultado sem partida em andamento.');
+        const resultado = { golsA: ev.golsA, golsB: ev.golsB };
+        const s = estadoSerie(resultado);
+        if (!s.terminou && !permiteEmpate(c, m)) throw new Error('Resultado não pode terminar empatado.');
+        m.resultado = resultado;
+        m.vencedor = s.vencedor === 'a' ? m.a : s.vencedor === 'b' ? m.b : null;
+        m.encerrada = true;
       } else if (ev.tipo === 'desempate') {
         c.desempates.push(ev.ordem.slice());
       }
@@ -322,10 +313,20 @@
     return derivar(Object.assign({}, c, { eventos: c.eventos.concat([evento]) }));
   }
 
-  function registrarCobranca(c, gol) {
+  function validarPlacar(golsA, golsB, podeEmpatar) {
+    if (!Number.isInteger(golsA) || !Number.isInteger(golsB)) return 'Informe o placar dos dois lados.';
+    if (golsA < 0 || golsB < 0) return 'O placar não pode ser negativo.';
+    if (golsA > 99 || golsB > 99) return 'Placar inválido.';
+    if (golsA === golsB && !podeEmpatar) return 'Esta fase não permite empate. Informe um vencedor.';
+    return null;
+  }
+
+  function registrarResultado(c, golsA, golsB) {
     const m = partidaAtual(c);
     if (!m || !m.a || !m.b || c.empatePendente) return c;
-    return aplicarEvento(c, { tipo: 'cobranca', gol: !!gol });
+    const erro = validarPlacar(golsA, golsB, permiteEmpate(c, m));
+    if (erro) return c;
+    return aplicarEvento(c, { tipo: 'resultado', golsA, golsB });
   }
 
   function registrarDesempate(c, rnd) {
@@ -334,12 +335,12 @@
     return aplicarEvento(c, { tipo: 'desempate', ordem });
   }
 
-  // Remove eventos do fim até tirar uma cobrança; sorteios de desempate posteriores caem junto.
+  // Remove eventos do fim até tirar um resultado; sorteios de desempate posteriores caem junto.
   function desfazer(c) {
     const eventos = c.eventos.slice();
     while (eventos.length) {
       const ev = eventos.pop();
-      if (ev.tipo === 'cobranca') {
+      if (ev.tipo === 'resultado') {
         return derivar(Object.assign({}, c, { eventos }));
       }
     }
@@ -347,7 +348,7 @@
   }
 
   function podeDesfazer(c) {
-    return !!c && !c.salvo && c.eventos.some(e => e.tipo === 'cobranca');
+    return !!c && !c.salvo && c.eventos.some(e => e.tipo === 'resultado');
   }
 
   function comecou(c) {
@@ -433,11 +434,11 @@
   }
 
   const Copa = {
-    MIN_JOGADORES, MAX_JOGADORES, COBRANCAS_REGULARES, DESTAQUES,
+    MIN_JOGADORES, MAX_JOGADORES, DESTAQUES,
     gerarId, embaralhar, validarQuantidade,
-    estadoSerie, gerarFase1, conflitos,
+    estadoSerie, gerarFase1, conflitos, validarPlacar, permiteEmpate,
     classificar, criarCampeonato, derivar, partidaAtual,
-    registrarCobranca, registrarDesempate, desfazer, podeDesfazer, comecou,
+    registrarResultado, registrarDesempate, desfazer, podeDesfazer, comecou,
     calcularRanking, registroHistorico, validarDados
   };
 

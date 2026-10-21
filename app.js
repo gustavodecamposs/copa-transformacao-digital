@@ -7,15 +7,53 @@
 
   /* ================= estado ================= */
 
+  const EDICOES_ANTERIORES = [
+    { id: 'h-ed1', campeonatoId: 'c-ed1', data: '2026-10-20', campeao: 'Gustavo', vice: 'Pedro' },
+    { id: 'h-ed2', campeonatoId: 'c-ed2', data: '2026-10-19', campeao: 'Isaque', vice: 'Pedro' }
+  ];
+  const DATAS_PROVISORIAS = { 'h-ed1': '2026-10-06', 'h-ed2': '2026-10-13' };
+
+  // Entra uma vez só: se o usuário excluir depois, não volta.
+  function semearEdicoes(dados) {
+    let corrigiu = false;
+    for (const h of dados.historico) {
+      if (DATAS_PROVISORIAS[h.id] === h.data) {
+        h.data = EDICOES_ANTERIORES.find(e => e.id === h.id).data;
+        corrigiu = true;
+      }
+    }
+    if (corrigiu) dados.historico.sort((x, y) => y.data.localeCompare(x.data));
+    if (dados.edicoesSemeadas) return;
+    dados.edicoesSemeadas = true;
+    const idDe = n => {
+      const p = dados.pessoas.find(x => x.nome.toLocaleLowerCase('pt-BR') === n.toLocaleLowerCase('pt-BR'));
+      return p ? p.id : null;
+    };
+    const participantes = ['Pedro', 'Isaque', 'Gustavo'].map(idDe);
+    if (participantes.some(id => !id)) return;
+    for (const e of EDICOES_ANTERIORES) {
+      if (dados.historico.some(h => h.id === e.id)) continue;
+      dados.historico.push({
+        id: e.id, campeonatoId: e.campeonatoId, data: e.data,
+        participantes: participantes.slice(),
+        campeao: idDe(e.campeao), vice: idDe(e.vice)
+      });
+    }
+    dados.historico.sort((x, y) => y.data.localeCompare(x.data));
+  }
+
   function estadoInicial() {
-    return {
+    const e = {
       pessoas: NOMES_INICIAIS.map((nome, i) => ({ id: 'p' + (i + 1), nome, removida: false })),
       historico: [],
+      edicoesSemeadas: false,
       campeonatoAtual: null,
       tema: { destaque: Copa.DESTAQUES[0] },
       selecao: ['p1', 'p2', 'p3'],
       modoVivo: 'placar'
     };
+    semearEdicoes(e);
+    return e;
   }
 
   function carregar() {
@@ -32,9 +70,11 @@
       try { campeonato = Copa.derivar(camp); } catch (e) { campeonato = null; }
     }
     const ativos = dados.pessoas.filter(p => !p.removida).map(p => p.id);
+    semearEdicoes(dados);
     return {
       pessoas: dados.pessoas,
       historico: dados.historico,
+      edicoesSemeadas: dados.edicoesSemeadas,
       campeonatoAtual: campeonato,
       tema: dados.tema && Copa.DESTAQUES.includes(dados.tema.destaque) ? dados.tema : { destaque: Copa.DESTAQUES[0] },
       selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
@@ -57,7 +97,10 @@
     sorteando: false,
     erroNome: '',
     resultadoVisivel: null,
-    ultimoChute: null,
+    erroResultado: '',
+    editandoData: null,
+    comemorar: false,
+    vt: false,
     placarAnterior: null,
     desempateRevelado: null,
     sorteandoDesempate: false,
@@ -111,6 +154,7 @@
     sorteio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>',
     seta: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
     cadeado: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    editar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>',
     lixo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
     baixar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
     subir: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>',
@@ -239,8 +283,25 @@
 
   /* ================= navegação ================= */
 
+  const ORDEM_ABAS = ['campeonato', 'aovivo', 'campeoes', 'participantes'];
+
+  function posicionarIndicador(instantaneo) {
+    const nav = $('.abas'), ind = $('.aba-indicador');
+    const alvo = nav && nav.querySelector('.aba[aria-selected="true"]');
+    if (!ind || !alvo) return;
+    const rn = nav.getBoundingClientRect(), ra = alvo.getBoundingClientRect();
+    ind.classList.toggle('sem-transicao', !!instantaneo);
+    ind.style.setProperty('--x', (ra.left - rn.left) + 'px');
+    ind.style.setProperty('--y', (ra.top - rn.top) + 'px');
+    ind.style.setProperty('--w', ra.width + 'px');
+    ind.style.setProperty('--h', ra.height + 'px');
+    ind.classList.add('pronto');
+    if (instantaneo) requestAnimationFrame(() => ind.classList.remove('sem-transicao'));
+  }
+
   function irPara(aba) {
     if (ui.sorteando) return;
+    const anterior = ui.aba;
     ui.aba = aba;
     document.body.dataset.aba = aba;
     document.querySelectorAll('.aba').forEach(b => {
@@ -249,9 +310,19 @@
       b.tabIndex = ativa ? 0 : -1;
     });
     $('#vista').setAttribute('aria-labelledby', 'tab-' + aba);
-    render();
+    const trocou = abaRenderizada !== null && anterior !== aba;
+    if (trocou && document.startViewTransition && !reduzMovimento.matches) {
+      document.documentElement.style.setProperty('--vt-dir', ORDEM_ABAS.indexOf(aba) >= ORDEM_ABAS.indexOf(anterior) ? '1' : '-1');
+      ui.vt = true;
+      document.startViewTransition(render);
+    } else {
+      render();
+    }
     if (window.scrollY > 260 && window.innerWidth < 900) window.scrollTo({ top: 0, behavior: reduzMovimento.matches ? 'auto' : 'smooth' });
   }
+
+  window.addEventListener('resize', () => posicionarIndicador(true));
+  if (document.fonts) document.fonts.ready.then(() => posicionarIndicador(true));
 
   document.querySelectorAll('.aba').forEach(b => {
     b.addEventListener('click', () => irPara(b.dataset.aba));
@@ -464,8 +535,8 @@
   /* ================= chaveamento ================= */
 
   function placarDe(m) {
-    if (!m || !m.cobrancas.length) return '';
-    const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
+    if (!m || !m.resultado) return '';
+    const s = Copa.estadoSerie(m.resultado);
     return s.golsA + '–' + s.golsB;
   }
 
@@ -480,14 +551,13 @@
   const clsBump = (vivo, m) => vivo && m && vivo.mudou === m.id ? ' bump' : '';
 
   function cartaoFase1(c, m, atualId, rolar, idx, vivo) {
-    const estadoCls = (m.vencedor ? 'encerrada' : (m.id === atualId ? 'jogando' : '')) + clsAcabou(vivo, m);
+    const estadoCls = (m.encerrada ? 'encerrada' : (m.id === atualId ? 'jogando' : '')) + clsAcabou(vivo, m);
     const num = id => c.participantes.length >= 4 ? '<span class="num">#' + c.numeros[id] + '</span>' : '';
     const cls = id => m.vencedor && m.vencedor !== id ? ' class="perdeu"' : '';
-    const quemPrimeiro = m.primeiro === 'a' ? m.a : m.b;
     let meta;
     if (m.vencedor) meta = 'Venceu ' + esc(nome(m.vencedor));
-    else if (m.id === atualId && m.cobrancas.length) meta = '<span class="ponto-vivo"></span>Em jogo';
-    else meta = (m.id === atualId ? 'Próximo' : 'Jogo ' + (idx + 1)) + ' · cobra 1º: ' + slot(quemPrimeiro, rolar);
+    else if (m.encerrada) meta = 'Empate';
+    else meta = m.id === atualId ? 'Próximo' : 'Jogo ' + (idx + 1);
     return '' +
       '<article class="cartao ' + estadoCls + '" data-lock="' + idx + '">' +
         '<div class="cartao-linha">' +
@@ -519,7 +589,7 @@
             '<span' + (m && m.vencedor && m.vencedor !== m.b ? ' class="perdeu"' : '') + '>' + b + '</span>' +
           '</div>' +
         '</div>' +
-        (m && m.cobrancas.length ? '<div style="text-align:center;margin-top:4px"><span class="placar-mini' + clsBump(vivo, m) + '">' + placarDe(m) + '</span></div>' : '') +
+        (m && m.resultado ? '<div style="text-align:center;margin-top:4px"><span class="placar-mini' + clsBump(vivo, m) + '">' + placarDe(m) + '</span></div>' : '') +
       '</article>';
   }
 
@@ -534,7 +604,7 @@
         '<div class="titulo-final">Final' + (emJogo ? ' · em jogo' : '') + '</div>' +
         '<div class="vaga' + (f && f.a ? '' : ' vazia') + (f && f.vencedor && f.vencedor !== f.a ? ' perdeu' : '') + '">' + vagaA + '</div>' +
         '<div class="vaga' + (f && f.b ? '' : ' vazia') + (f && f.vencedor && f.vencedor !== f.b ? ' perdeu' : '') + '">' + vagaB + '</div>' +
-        (f && f.cobrancas.length ? '<div style="margin-top:8px"><span class="placar-mini' + clsBump(vivo, f) + '">' + placarDe(f) + '</span></div>' : '') +
+        (f && f.resultado ? '<div style="margin-top:8px"><span class="placar-mini' + clsBump(vivo, f) + '">' + placarDe(f) + '</span></div>' : '') +
       '</article>';
   }
 
@@ -551,7 +621,7 @@
       return '<div class="chave so-final"><div class="col">' + final + selo + '</div></div>';
     }
 
-    const fase1 = '<div class="col"><p class="col-rotulo">Fase 1 · 5 chutes cada</p>' +
+    const fase1 = '<div class="col"><p class="col-rotulo">Fase 1 · todos contra todos</p>' +
       c.fase1.map((m, i) => cartaoFase1(c, m, atualId, rolar, i, vivo)).join('') + '</div>';
 
     let semis;
@@ -580,19 +650,19 @@
       '<section class="painel" aria-labelledby="t-classif">' +
         '<h2 class="painel-titulo" id="t-classif">' + (titulo || 'Classificação · Fase 1') + '</h2>' +
         '<div class="tabela-wrap"><table>' +
-          '<thead><tr><th scope="col"><span class="sr">Posição</span></th><th scope="col" class="esq">Jogador</th><th scope="col" title="Jogos">J</th><th scope="col" title="Vitórias">V</th><th scope="col" title="Derrotas">D</th><th scope="col" class="col-opc" title="Gols pró">GP</th><th scope="col" class="col-opc" title="Gols contra">GC</th><th scope="col" title="Saldo de gols">SG</th><th scope="col" title="Pontos">PTS</th></tr></thead>' +
+          '<thead><tr><th scope="col"><span class="sr">Posição</span></th><th scope="col" class="esq">Jogador</th><th scope="col" title="Jogos">J</th><th scope="col" title="Vitórias">V</th><th scope="col" title="Empates">E</th><th scope="col" title="Derrotas">D</th><th scope="col" class="col-opc" title="Gols pró">GP</th><th scope="col" class="col-opc" title="Gols contra">GC</th><th scope="col" title="Saldo de gols">SG</th><th scope="col" title="Pontos">PTS</th></tr></thead>' +
           '<tbody>' + tabela.map(l =>
-            '<tr class="' + classe(l.pos) + '">' +
+            '<tr class="' + classe(l.pos) + '" data-flip="cl:' + esc(l.id) + '">' +
               '<td class="pos"><span>' + l.pos + '</span></td>' +
               '<td class="esq jogador">' + esc(nome(l.id)) + '</td>' +
-              '<td>' + l.j + '</td><td>' + l.v + '</td><td>' + l.d + '</td>' +
+              '<td>' + l.j + '</td><td>' + l.v + '</td><td>' + l.e + '</td><td>' + l.d + '</td>' +
               '<td class="col-opc">' + l.gp + '</td><td class="col-opc">' + l.gc + '</td>' +
               '<td>' + (l.sg > 0 ? '+' : '') + l.sg + '</td>' +
               '<td class="pts">' + l.pts + '</td>' +
             '</tr>').join('') + '</tbody>' +
         '</table></div>' +
         '<div class="legenda">' + legenda + '</div>' +
-        '<p class="regras">Vitória vale 3 pontos. Empate na pontuação: saldo de gols.</p>' +
+        '<p class="regras">Vitória vale 3 pontos, empate 1. Empate na pontuação: saldo de gols.</p>' +
       '</section>';
   }
 
@@ -614,7 +684,7 @@
             '<button class="btn btn-acc btn-grande" id="sortear" ' + (f.ok ? '' : 'disabled') + '>' + ICONE.sorteio + 'Sortear chave</button>' +
             '<button class="btn btn-linha" id="editarSel">Escolher jogadores</button>' +
           '</div>' +
-          '<p class="regras">Vitória vale 3 pontos. Empate na pontuação: saldo de gols.</p>' +
+          '<p class="regras">Vitória vale 3 pontos, empate 1. Empate na pontuação: saldo de gols.</p>' +
         '</section>';
     }
 
@@ -631,7 +701,7 @@
         '<h2 class="painel-titulo" id="t-chave">Chaveamento <span class="contador">' + rotuloEstado(c) + '</span></h2>' +
         '<div id="chave">' + chaveamento(c, false) + '</div>' +
         '<div class="acoes" style="margin-top:22px">' + irVivo + acoes + '</div>' +
-        (c.participantes.length < 3 ? '<p class="regras">Série de 5 cobranças para cada lado, morte súbita se empatar.</p>' : '') +
+        (c.participantes.length < 3 ? '<p class="regras">Final direta: lance o placar, sem empate.</p>' : '') +
       '</section>' +
       tabelaClassificacao(c);
   }
@@ -640,7 +710,7 @@
     if (c.estado === 'encerrado') return 'encerrado';
     if (c.empatePendente) return 'desempate pendente';
     if (c.estado === 'fase1') {
-      const feitos = c.fase1.filter(m => m.vencedor).length;
+      const feitos = c.fase1.filter(m => m.encerrada).length;
       return 'Fase 1 · ' + feitos + '/' + c.fase1.length;
     }
     return c.estado === 'semis' ? 'Semifinal' : 'Final';
@@ -657,7 +727,7 @@
     if (reiniciar) reiniciar.addEventListener('click', () => {
       confirmar({
         titulo: 'Reiniciar campeonato?',
-        texto: 'Todas as cobranças deste campeonato serão apagadas. O histórico de campeões não muda.',
+        texto: 'Todos os resultados deste campeonato serão apagados. O histórico de campeões não muda.',
         ok: 'Reiniciar',
         perigo: true,
         aoConfirmar: () => {
@@ -753,8 +823,8 @@
     const anterior = new Map(todasPartidas(antes).map(m => [m.id, m]));
     for (const m of todasPartidas(depois)) {
       const a = anterior.get(m.id);
-      if (a && a.cobrancas.length !== m.cobrancas.length) r.mudou = m.id;
-      if (m.vencedor && (!a || !a.vencedor)) r.acabou = m.id;
+      if (a && !a.resultado && m.resultado) r.mudou = m.id;
+      if (m.encerrada && (!a || !a.encerrada)) r.acabou = m.id;
       for (const lado of ['a', 'b']) {
         if (m[lado] && (!a || !a[lado])) r.chegou.add(m.id + ':' + lado);
       }
@@ -778,42 +848,32 @@
   }
 
   function viewChaveVivo(c, m, encerrada) {
-    const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
     const vivo = ui.diff;
     ui.diff = null;
-    const novoIdx = ui.novoMarcador;
-    ui.novoMarcador = null;
-    const chute = ui.ultimoChute;
-    ui.ultimoChute = null;
 
-    const flash = chute
-      ? '<div class="anuncio ' + (chute === 'gol' ? 'gol' : 'erro') + '" aria-hidden="true">' + (chute === 'gol' ? 'Gol' : chute === 'trave' ? 'Na trave' : 'Pra fora') + '</div>'
-      : '';
-    const desfazerBtn = '<button class="btn btn-linha icone-so" id="desfazer" aria-label="Desfazer última cobrança" title="Desfazer última cobrança" ' +
+    const desfazerBtn = '<button class="btn btn-linha icone-so" id="desfazer" aria-label="Desfazer último resultado" title="Desfazer último resultado" ' +
       (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + '</button>';
 
     let acao;
     if (encerrada) {
+      const s = Copa.estadoSerie(m.resultado);
+      const texto = m.vencedor
+        ? '<span>' + esc(nome(m.vencedor)) + '</span> vence ' + s.golsA + ' × ' + s.golsB
+        : 'Empate ' + s.golsA + ' × ' + s.golsB;
       acao = '' +
-        '<p class="mini-venc"><span>' + esc(nome(m.vencedor)) + '</span> vence ' + s.golsA + ' × ' + s.golsB + '</p>' +
+        '<p class="mini-venc">' + texto + '</p>' +
         '<div class="rodape-vivo" style="margin-top:12px"><button class="btn btn-acc" id="proxima">' + textoProximo(c, m) + ICONE.seta + '</button></div>';
     } else {
-      const daVez = s.vez === 'a' ? m.a : m.b;
-      acao = '' +
-        '<div class="cobrar compacto-btns">' +
-          '<button class="chute chute-gol" id="gol">Gol<small>' + esc(nome(daVez)) + '</small></button>' +
-          '<button class="chute chute-erro" id="errou">Errou<small>' + esc(nome(daVez)) + '</small></button>' +
-        '</div>' +
-        '<p class="sr" aria-live="assertive">Vez de ' + esc(nome(daVez)) + '. Placar ' + s.golsA + ' a ' + s.golsB + '.</p>';
+      acao = formResultado(c, m);
     }
 
-    const rotulo = rotuloPartida(c, m) + (encerrada ? ' · fim de jogo' : s.morteSubita ? ' · morte súbita' : '');
+    const rotulo = rotuloPartida(c, m) + (encerrada ? ' · fim de jogo' : '');
     const mostraTabela = c.fase1.length && (c.estado === 'fase1' || c.fase1.indexOf(m) >= 0);
 
     return seletorModo() +
       '<section class="painel mini-vivo" aria-labelledby="t-mini">' +
         '<div class="mini-topo"><h2 class="fase-rotulo" id="t-mini">' + rotulo + '</h2>' + desfazerBtn + '</div>' +
-        '<div class="compacto">' + blocoPlacar(m, s, novoIdx) + flash + '</div>' +
+        (encerrada ? '<div class="compacto">' + blocoPlacar(m, Copa.estadoSerie(m.resultado)) + '</div>' : '') +
         acao +
       '</section>' +
       '<section class="painel" aria-labelledby="t-chave-vivo">' +
@@ -823,37 +883,14 @@
       (mostraTabela ? tabelaClassificacao(c) : '');
   }
 
-  function marcador(c, novo) {
-    if (!c) return '<svg class="marc" viewBox="0 0 22 22" aria-hidden="true"><circle class="anel" cx="11" cy="11" r="9"/></svg>';
-    if (c.gol) return '<svg class="marc' + (novo ? ' novo' : '') + '" viewBox="0 0 22 22" aria-hidden="true"><circle class="cheio" cx="11" cy="11" r="10"/></svg>';
-    return '<svg class="marc erro' + (novo ? ' novo' : '') + '" viewBox="0 0 22 22" aria-hidden="true"><circle class="anel" cx="11" cy="11" r="9"/><path class="xis" d="M7.5 7.5l7 7M14.5 7.5l-7 7"/></svg>';
-  }
-
-  function trilha(m, lado, novoIdx) {
-    const todas = m.cobrancas.map((c, i) => ({ c, i })).filter(x => x.c.lado === lado);
-    const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
-    const maxChutes = Math.max(s.chutesA, s.chutesB);
-    const total = Math.max(Copa.COBRANCAS_REGULARES, s.morteSubita && !s.terminou ? maxChutes + (s.chutesA === s.chutesB ? 1 : 0) : maxChutes);
-    const html = [];
-    for (let k = 0; k < total; k++) {
-      if (k === Copa.COBRANCAS_REGULARES) html.push('<span class="ms-sep" aria-hidden="true"></span>');
-      const item = todas[k];
-      html.push(marcador(item ? item.c : null, item && item.i === novoIdx));
-    }
-    const gols = todas.filter(x => x.c.gol).length;
-    return '<div class="trilha" role="img" aria-label="' + gols + ' gols em ' + todas.length + ' cobranças">' + html.join('') + '</div>';
-  }
-
-  function blocoPlacar(m, s, novoIdx) {
+  function blocoPlacar(m, s) {
     const ant = ui.placarAnterior && ui.placarAnterior.id === m.id ? ui.placarAnterior : null;
-    const bumpA = ant && s.golsA > ant.a ? ' bump' : '';
-    const bumpB = ant && s.golsB > ant.b ? ' bump' : '';
+    const bumpA = ant && s.golsA !== ant.a ? ' bump' : '';
+    const bumpB = ant && s.golsB !== ant.b ? ' bump' : '';
     ui.placarAnterior = { id: m.id, a: s.golsA, b: s.golsB };
     const lado = (id, l) => '' +
-      '<div class="lado' + (s.vez === l ? ' vez' : '') + '">' +
-        '<span class="vez-tag">Vez</span>' +
+      '<div class="lado">' +
         '<span class="lado-nome" style="--len:' + Math.max(5, ...nome(id).split(/\s+/).map(p => p.length)) + '">' + esc(nome(id)) + '</span>' +
-        trilha(m, l, novoIdx) +
       '</div>';
     return '' +
       '<div class="placar">' +
@@ -863,13 +900,120 @@
       '</div>';
   }
 
-  function artePalco() {
-    const chute = ui.ultimoChute;
-    ui.ultimoChute = null;
-    const anuncio = chute
-      ? '<div class="anuncio ' + (chute === 'gol' ? 'gol' : 'erro') + '" aria-hidden="true">' + (chute === 'gol' ? 'Gol' : chute === 'trave' ? 'Na trave' : 'Pra fora') + '</div>'
-      : '';
-    return '<div class="palco-arte">' + mesaGol({ chute }) + anuncio + '</div>';
+  function artePalco(chute) {
+    return '<div class="palco-arte">' + mesaGol(chute && !reduzMovimento.matches ? { chute } : {}) + '</div>';
+  }
+
+  function contarAte(els) {
+    if (reduzMovimento.matches) return;
+    els.forEach(el => {
+      const alvo = parseInt(el.textContent, 10);
+      if (!alvo) return;
+      const dur = Math.min(900, 300 + alvo * 90);
+      const t0 = performance.now();
+      el.textContent = '0';
+      const passo = t => {
+        const p = Math.min(1, (t - t0) / dur);
+        el.textContent = String(Math.round(alvo * (1 - Math.pow(1 - p, 3))));
+        if (p < 1) requestAnimationFrame(passo);
+      };
+      requestAnimationFrame(passo);
+    });
+  }
+
+  function formResultado(c, m) {
+    const podeEmpatar = Copa.permiteEmpate(c, m);
+    const lado = (id, campo) => '' +
+      '<div class="lado-input" id="lado-' + campo + '">' +
+        '<label class="lado-nome" for="' + campo + '" style="--len:' + Math.max(5, ...nome(id).split(/\s+/).map(p => p.length)) + '">' + esc(nome(id)) + '</label>' +
+        '<div class="stepper">' +
+          '<button type="button" class="passo" data-passo="-1" data-alvo="' + campo + '" aria-label="Menos um gol para ' + esc(nome(id)) + '">−</button>' +
+          '<input class="campo campo-placar" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" id="' + campo + '" placeholder="0" aria-label="Gols de ' + esc(nome(id)) + '">' +
+          '<button type="button" class="passo" data-passo="1" data-alvo="' + campo + '" aria-label="Mais um gol para ' + esc(nome(id)) + '">+</button>' +
+        '</div>' +
+      '</div>';
+    return '' +
+      '<form class="form-resultado" id="formResultado" novalidate data-empate="' + podeEmpatar + '" data-nome-a="' + esc(nome(m.a)) + '" data-nome-b="' + esc(nome(m.b)) + '">' +
+        '<div class="placar-input">' +
+          lado(m.a, 'placarA') +
+          '<span class="sep" aria-hidden="true">×</span>' +
+          lado(m.b, 'placarB') +
+        '</div>' +
+        '<p class="veredito" id="veredito" aria-live="polite">' + (podeEmpatar ? 'Fase de grupos · empate vale 1 ponto' : 'Mata-mata · precisa de vencedor') + '</p>' +
+        '<p class="erro-msg" id="erroResultado" role="alert">' + esc(ui.erroResultado || '') + '</p>' +
+        '<button class="btn btn-acc btn-grande" type="submit" id="btnConfirmar">Confirmar resultado' + ICONE.seta + '</button>' +
+      '</form>';
+  }
+
+  function lerPlacar(campo) {
+    const v = campo.value.trim();
+    return v === '' ? NaN : parseInt(v, 10);
+  }
+
+  function atualizarVeredito() {
+    const form = $('#formResultado');
+    if (!form) return;
+    const a = lerPlacar($('#placarA')), b = lerPlacar($('#placarB'));
+    const podeEmpatar = form.dataset.empate === 'true';
+    const nA = esc(form.dataset.nomeA), nB = esc(form.dataset.nomeB);
+    const ladoA = $('#lado-placarA'), ladoB = $('#lado-placarB');
+    const ver = $('#veredito');
+    let html, aviso = false, pronto = false;
+    if (isNaN(a) && isNaN(b)) html = podeEmpatar ? 'Fase de grupos · empate vale 1 ponto' : 'Mata-mata · precisa de vencedor';
+    else if (isNaN(a) || isNaN(b)) html = 'Falta o placar de ' + (isNaN(a) ? nA : nB);
+    else if (a === b) {
+      html = podeEmpatar ? 'Empate ' + a + ' × ' + b : 'Empate não vale no mata-mata';
+      aviso = !podeEmpatar; pronto = podeEmpatar;
+    } else {
+      html = '<span class="acc">' + (a > b ? nA : nB) + '</span> vence ' + a + ' × ' + b;
+      pronto = true;
+    }
+    ladoA.classList.toggle('lider', !isNaN(a) && !isNaN(b) && a > b);
+    ladoB.classList.toggle('lider', !isNaN(a) && !isNaN(b) && b > a);
+    ladoA.classList.toggle('empate', pronto && a === b);
+    ladoB.classList.toggle('empate', pronto && a === b);
+    if (ver.innerHTML !== html) {
+      ver.innerHTML = html;
+      ver.classList.remove('muda'); void ver.offsetWidth; ver.classList.add('muda');
+    }
+    ver.classList.toggle('aviso', aviso);
+    $('#btnConfirmar').classList.toggle('pronto', pronto);
+    if (pronto || aviso) $('#erroResultado').textContent = '';
+  }
+
+  function ligarResultado() {
+    const form = $('#formResultado');
+    if (!form) return;
+    const pulsar = el => { el.classList.remove('pulsa'); void el.offsetWidth; el.classList.add('pulsa'); };
+    form.querySelectorAll('.campo-placar').forEach(campo => {
+      campo.addEventListener('input', () => {
+        const limpo = campo.value.replace(/\D/g, '').slice(0, 2);
+        if (limpo !== campo.value) campo.value = limpo;
+        atualizarVeredito();
+      });
+      campo.addEventListener('focus', () => campo.select());
+      campo.addEventListener('keydown', e => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          form.querySelector('[data-alvo="' + campo.id + '"][data-passo="' + (e.key === 'ArrowUp' ? 1 : -1) + '"]').click();
+        }
+        if (e.key === 'Enter' && campo.id === 'placarA' && $('#placarB').value === '') {
+          e.preventDefault();
+          $('#placarB').focus();
+        }
+      });
+    });
+    form.querySelectorAll('[data-passo]').forEach(b => {
+      b.addEventListener('click', () => {
+        const campo = $('#' + b.dataset.alvo);
+        const atual = parseInt(campo.value, 10) || 0;
+        campo.value = String(Math.max(0, Math.min(99, atual + Number(b.dataset.passo))));
+        pulsar(campo);
+        vibrar(12);
+        atualizarVeredito();
+      });
+    });
+    if (window.matchMedia('(pointer: fine)').matches) $('#placarA').focus({ preventScroll: true });
   }
 
   function viewAoVivo() {
@@ -879,7 +1023,7 @@
         '<section class="painel vazio">' +
           mesaGol({}) +
           '<h2>Nenhum campeonato sorteado</h2>' +
-          '<p class="texto">Sorteie a chave para começar a marcar as cobranças.</p>' +
+          '<p class="texto">Sorteie a chave para começar a lançar os resultados.</p>' +
           '<div class="acoes"><button class="btn btn-acc" id="irCamp">Ir para Campeonato' + ICONE.seta + '</button></div>' +
         '</section>';
     }
@@ -887,7 +1031,7 @@
     const modoChave = estado.modoVivo === 'chave';
     if (ui.resultadoVisivel) {
       const m = acharPartida(c, ui.resultadoVisivel);
-      if (m && m.vencedor) return modoChave ? viewChaveVivo(c, m, true) : viewResultado(c, m);
+      if (m && m.encerrada) return modoChave ? viewChaveVivo(c, m, true) : viewResultado(c, m);
       ui.resultadoVisivel = null;
     }
     if (c.estado === 'encerrado') return viewCampeao(c);
@@ -898,29 +1042,18 @@
     if (modoChave) return viewChaveVivo(c, m, false);
     ui.diff = null;
 
-    const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
-    const novoIdx = ui.novoMarcador;
-    ui.novoMarcador = null;
-    const daVez = s.vez === 'a' ? m.a : m.b;
-
     const proximas = c.estado === 'fase1'
-      ? c.fase1.filter(x => !x.vencedor && x !== m).slice(0, 3)
+      ? c.fase1.filter(x => !x.encerrada && x !== m).slice(0, 3)
       : [];
 
     return seletorModo() +
       '<section class="painel palco" aria-labelledby="t-vivo">' +
         '<h2 class="fase-rotulo" id="t-vivo">' + rotuloPartida(c, m) + '</h2>' +
         artePalco() +
-        blocoPlacar(m, s, novoIdx) +
-        (s.morteSubita ? '<div class="ms-badge">Morte súbita</div>' : '') +
-        '<div class="cobrar">' +
-          '<button class="chute chute-gol" id="gol">Gol<small>' + esc(nome(daVez)) + '</small></button>' +
-          '<button class="chute chute-erro" id="errou">Errou<small>' + esc(nome(daVez)) + '</small></button>' +
-        '</div>' +
+        formResultado(c, m) +
         '<div class="rodape-vivo">' +
-          '<button class="btn btn-linha btn-mini" id="desfazer" ' + (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + 'Desfazer última cobrança</button>' +
+          '<button class="btn btn-linha btn-mini" id="desfazer" ' + (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + 'Desfazer último resultado</button>' +
         '</div>' +
-        '<p class="sr" aria-live="assertive">Vez de ' + esc(nome(daVez)) + '. Placar ' + s.golsA + ' a ' + s.golsB + '.</p>' +
       '</section>' +
       (proximas.length ? '' +
         '<section class="painel" aria-labelledby="t-prox">' +
@@ -933,23 +1066,27 @@
   }
 
   function viewResultado(c, m) {
-    const s = Copa.estadoSerie(m.cobrancas, m.primeiro);
-    const perdedor = m.vencedor === m.a ? m.b : m.a;
+    const s = Copa.estadoSerie(m.resultado);
     const proximo = textoProximo(c, m);
     ui.diff = null;
+
+    const resumo = m.vencedor
+      ? '<p class="vencedor"><span>' + esc(nome(m.vencedor)) + '</span> vence</p>' +
+        '<p class="texto">' + s.golsA + ' × ' + s.golsB + ' contra ' + esc(nome(m.vencedor === m.a ? m.b : m.a)) + '.</p>'
+      : '<p class="vencedor">Empate</p>' +
+        '<p class="texto">' + s.golsA + ' × ' + s.golsB + ' entre ' + esc(nome(m.a)) + ' e ' + esc(nome(m.b)) + '.</p>';
 
     return seletorModo() +
       '<section class="painel palco fim-jogo" aria-labelledby="t-fim">' +
         '<h2 class="fase-rotulo" id="t-fim">' + rotuloPartida(c, m) + ' · fim de jogo</h2>' +
-        artePalco() +
-        '<p class="vencedor"><span>' + esc(nome(m.vencedor)) + '</span> vence</p>' +
-        '<p class="texto">' + s.golsA + ' × ' + s.golsB + ' contra ' + esc(nome(perdedor)) + (s.morteSubita ? ', na morte súbita' : '') + '.</p>' +
-        blocoPlacar(m, s, null).replace('class="placar"', 'class="placar" style="margin-top:18px"') +
+        artePalco(ui.comemorar ? (m.vencedor ? 'gol' : 'trave') : null) +
+        resumo +
+        blocoPlacar(m, s).replace('class="placar"', 'class="placar" style="margin-top:18px"') +
         '<div class="rodape-vivo" style="margin-top:24px">' +
           '<button class="btn btn-acc btn-grande" id="proxima">' + proximo + ICONE.seta + '</button>' +
         '</div>' +
         '<div class="rodape-vivo">' +
-          '<button class="btn btn-linha btn-mini" id="desfazer" ' + (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + 'Desfazer última cobrança</button>' +
+          '<button class="btn btn-linha btn-mini" id="desfazer" ' + (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + 'Desfazer último resultado</button>' +
         '</div>' +
       '</section>' +
       (c.fase1.indexOf(m) >= 0 ? tabelaClassificacao(c, 'Classificação atualizada') : '');
@@ -963,7 +1100,7 @@
           '<h2 class="fase-rotulo" id="t-des">Desempate por sorteio · resultado</h2>' +
           '<ol class="desempate-lista final">' + ui.desempateRevelado.map(id => '<li>' + esc(nome(id)) + '</li>').join('') + '</ol>' +
           '<div class="rodape-vivo" style="margin-top:24px"><button class="btn btn-acc btn-grande" id="seguirDes">' + proximo + ICONE.seta + '</button></div>' +
-          '<div class="rodape-vivo"><button class="btn btn-linha btn-mini" id="desfazer">' + ICONE.desfazer + 'Desfazer última cobrança</button></div>' +
+          '<div class="rodape-vivo"><button class="btn btn-linha btn-mini" id="desfazer">' + ICONE.desfazer + 'Desfazer último resultado</button></div>' +
         '</section>' + tabelaClassificacao(c);
     }
     const grupo = c.empatePendente;
@@ -973,7 +1110,7 @@
         '<p class="texto" style="margin-top:12px">Empate em pontos, saldo, gols marcados e confronto direto entre ' + grupo.map(id => esc(nome(id))).join(', ') + '. A ordem sai no sorteio.</p>' +
         '<ol class="desempate-lista" id="listaDes">' + grupo.map(id => '<li>' + esc(nome(id)) + '</li>').join('') + '</ol>' +
         '<div class="rodape-vivo" style="margin-top:24px"><button class="btn btn-acc btn-grande" id="sortearDes">' + ICONE.sorteio + 'Sortear desempate</button></div>' +
-        '<div class="rodape-vivo"><button class="btn btn-linha btn-mini" id="desfazer" ' + (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + 'Desfazer última cobrança</button></div>' +
+        '<div class="rodape-vivo"><button class="btn btn-linha btn-mini" id="desfazer" ' + (Copa.podeDesfazer(c) ? '' : 'disabled') + '>' + ICONE.desfazer + 'Desfazer último resultado</button></div>' +
       '</section>' + tabelaClassificacao(c);
   }
 
@@ -994,7 +1131,7 @@
             : '<button class="btn btn-acc btn-grande" id="salvarHist">Salvar no histórico</button>') +
           '<button class="btn btn-linha" id="novoCamp">' + ICONE.reiniciar + 'Novo campeonato</button>' +
         '</div>' +
-        (!jaSalvo ? '<div class="rodape-vivo"><button class="btn btn-linha btn-mini" id="desfazer">' + ICONE.desfazer + 'Desfazer última cobrança</button></div>' : '') +
+        (!jaSalvo ? '<div class="rodape-vivo"><button class="btn btn-linha btn-mini" id="desfazer">' + ICONE.desfazer + 'Desfazer último resultado</button></div>' : '') +
       '</section>' +
       '<section class="painel" aria-labelledby="t-chave-final"><h2 class="painel-titulo" id="t-chave-final">Chave final</h2>' + chaveamento(c, false) + '</section>';
   }
@@ -1052,9 +1189,14 @@
       });
     });
 
-    const gol = $('#gol'), errou = $('#errou');
-    if (gol) gol.addEventListener('click', () => cobrar(true));
-    if (errou) errou.addEventListener('click', () => cobrar(false));
+    const formRes = $('#formResultado');
+    if (formRes) formRes.addEventListener('submit', e => { e.preventDefault(); confirmarResultado(); });
+    ligarResultado();
+
+    if (ui.comemorar) {
+      ui.comemorar = false;
+      contarAte(document.querySelectorAll('#vista .gols .n'));
+    }
 
     const desf = $('#desfazer');
     if (desf) desf.addEventListener('click', desfazer);
@@ -1080,24 +1222,31 @@
     }
   }
 
-  function cobrar(gol) {
+  function confirmarResultado() {
     const c = estado.campeonatoAtual;
     const m = Copa.partidaAtual(c);
     if (!m || !m.a || !m.b) return;
-    const idx = m.cobrancas.length;
-    const depois = Copa.registrarCobranca(c, gol);
+    const campoA = $('#placarA'), campoB = $('#placarB');
+    const golsA = parseInt(campoA.value, 10);
+    const golsB = parseInt(campoB.value, 10);
+    const erro = Copa.validarPlacar(golsA, golsB, Copa.permiteEmpate(c, m));
+    if (erro) {
+      ui.erroResultado = erro;
+      const el = $('#erroResultado');
+      if (el) el.textContent = erro;
+      const pl = $('.placar-input');
+      if (pl) { pl.classList.remove('shake'); void pl.offsetWidth; pl.classList.add('shake'); }
+      vibrar([15, 40, 15]);
+      return;
+    }
+    ui.erroResultado = '';
+    const depois = Copa.registrarResultado(c, golsA, golsB);
     if (depois === c) return;
+    ui.comemorar = true;
     ui.diff = diferenca(c, depois);
     estado.campeonatoAtual = depois;
-    ui.ultimoChute = gol ? 'gol' : (Math.random() < 0.5 ? 'fora' : 'trave');
-    ui.novoMarcador = idx;
-    const mDepois = acharPartida(depois, m.id);
-    if (mDepois.vencedor) {
-      ui.resultadoVisivel = m.id;
-      vibrar([30, 60, 30, 60, 80]);
-    } else {
-      vibrar(gol ? 35 : [15, 40, 15]);
-    }
+    ui.resultadoVisivel = m.id;
+    vibrar([30, 60, 30, 60, 80]);
     salvar();
     render();
   }
@@ -1110,9 +1259,10 @@
     ui.resultadoVisivel = null;
     ui.desempateRevelado = null;
     ui.placarAnterior = null;
+    ui.erroResultado = '';
     salvar();
     render();
-    toast('Última cobrança desfeita.');
+    toast('Último resultado desfeito.');
   }
 
   function sortearDesempate() {
@@ -1185,7 +1335,7 @@
   function viewCampeoes() {
     const ranking = Copa.calcularRanking(estado.pessoas, estado.historico);
     const linhas = ranking.map((r, i) =>
-      '<tr class="' + (i === 0 && r.titulos > 0 ? 'podio-1' : '') + '">' +
+      '<tr class="' + (i === 0 && r.titulos > 0 ? 'podio-1' : '') + '" data-flip="rk:' + esc(r.id) + '">' +
         '<td class="pos"><span>' + (i + 1) + '</span></td>' +
         '<td class="esq jogador">' + nomeRotulado(r.id) + '</td>' +
         '<td class="pts">' + r.titulos + '</td>' +
@@ -1194,13 +1344,24 @@
         '<td>' + r.aproveitamento + '%</td>' +
       '</tr>').join('');
 
-    const hist = estado.historico.map(h =>
-      '<li>' +
-        '<div><div class="data">' + esc(dataBR(h.data)) + '</div>' +
+    const hist = estado.historico.map(h => {
+      const editando = ui.editandoData === h.id;
+      const data = editando
+        ? '<form class="data-edit" data-form-data="' + esc(h.id) + '">' +
+            '<input class="campo" type="date" value="' + esc(h.data) + '" max="' + hojeISO() + '" required aria-label="Nova data">' +
+            '<button class="btn btn-acc btn-mini" type="submit" aria-label="Salvar data">' + ICONE.check + '</button>' +
+            '<button class="btn btn-linha btn-mini" type="button" data-cancelar-data aria-label="Cancelar">×</button>' +
+          '</form>'
+        : '<div class="data">' + esc(dataBR(h.data)) +
+            '<button class="data-lapis" data-editar-data="' + esc(h.id) + '" aria-label="Editar data de ' + esc(dataBR(h.data)) + '" title="Editar data">' + ICONE.editar + '</button>' +
+          '</div>';
+      return '<li data-flip="hi:' + esc(h.id) + '">' +
+        '<div>' + data +
         '<div class="quem"><span class="acc">' + nomeRotulado(h.campeao) + '</span> campeão · vice ' + nomeRotulado(h.vice) + '</div>' +
         '<div class="lista">' + h.participantes.map(id => esc(nome(id))).join(' · ') + '</div></div>' +
         '<button class="btn btn-perigo btn-mini" data-excluir="' + esc(h.id) + '" aria-label="Excluir campeonato de ' + esc(dataBR(h.data)) + '">' + ICONE.lixo + '</button>' +
-      '</li>').join('');
+      '</li>';
+    }).join('');
 
     return '' +
       '<section class="painel" aria-labelledby="t-rank">' +
@@ -1213,6 +1374,7 @@
             '<p class="regras">Desempate: vices, depois menos campeonatos disputados, depois ordem alfabética.</p>'
           : '<p class="texto">Nenhum campeonato salvo ainda. Termine uma final e toque em "Salvar no histórico".</p>') +
       '</section>' +
+      formCampeaoManual() +
       '<section class="painel" aria-labelledby="t-hist">' +
         '<h2 class="painel-titulo" id="t-hist">Histórico</h2>' +
         (hist ? '<ul class="historico">' + hist + '</ul>' : '<p class="texto">Vazio por enquanto.</p>') +
@@ -1228,7 +1390,99 @@
       '</section>';
   }
 
+  function formCampeaoManual() {
+    const ativos = estado.pessoas.filter(p => !p.removida);
+    if (ativos.length < 2) return '';
+    const opcoes = (sel) => '<option value="">Escolha</option>' +
+      ativos.map(p => '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(p.nome) + '</option>').join('');
+    return '' +
+      '<section class="painel" aria-labelledby="t-manual">' +
+        '<h2 class="painel-titulo" id="t-manual">Adicionar campeão</h2>' +
+        '<p class="texto">Para campeonatos jogados fora do app.</p>' +
+        '<form class="form-manual" id="formManual" novalidate>' +
+          '<div class="manual-campos">' +
+            '<label class="manual-campo"><span>Data</span><input class="campo" type="date" id="manData" value="' + hojeISO() + '" max="' + hojeISO() + '" required></label>' +
+            '<label class="manual-campo"><span>Campeão</span><select class="campo" id="manCampeao" required>' + opcoes('') + '</select></label>' +
+            '<label class="manual-campo"><span>Vice</span><select class="campo" id="manVice" required>' + opcoes('') + '</select></label>' +
+          '</div>' +
+          '<p class="manual-rotulo" id="t-manPart">Participantes</p>' +
+          '<div class="selecao" role="group" aria-labelledby="t-manPart">' +
+            ativos.map(p =>
+              '<div class="escolha">' +
+                '<input type="checkbox" id="man-' + esc(p.id) + '" data-man="' + esc(p.id) + '" checked>' +
+                '<label for="man-' + esc(p.id) + '"><span class="marca">' + ICONE.check + '</span><span class="nome">' + esc(p.nome) + '</span></label>' +
+              '</div>').join('') +
+          '</div>' +
+          '<p class="erro-msg" id="erroManual" role="alert"></p>' +
+          '<div class="acoes" style="margin-top:16px"><button class="btn btn-acc" type="submit">' + ICONE.check + 'Adicionar ao histórico</button></div>' +
+        '</form>' +
+      '</section>';
+  }
+
+  function adicionarCampeaoManual() {
+    const data = $('#manData').value;
+    const campeao = $('#manCampeao').value;
+    const vice = $('#manVice').value;
+    const participantes = [...document.querySelectorAll('[data-man]')].filter(x => x.checked).map(x => x.dataset.man);
+    let erro = '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) erro = 'Informe a data.';
+    else if (data > hojeISO()) erro = 'A data não pode estar no futuro.';
+    else if (!campeao || !vice) erro = 'Escolha o campeão e o vice.';
+    else if (campeao === vice) erro = 'Campeão e vice precisam ser pessoas diferentes.';
+    if (erro) {
+      const el = $('#erroManual');
+      el.textContent = erro;
+      el.parentElement.classList.remove('shake'); void el.offsetWidth; el.parentElement.classList.add('shake');
+      return;
+    }
+    [campeao, vice].forEach(id => { if (!participantes.includes(id)) participantes.push(id); });
+    estado.historico.push({
+      id: Copa.gerarId('h'),
+      campeonatoId: Copa.gerarId('cm'),
+      data,
+      participantes,
+      campeao,
+      vice
+    });
+    estado.historico.sort((x, y) => y.data.localeCompare(x.data));
+    salvar();
+    render();
+    toast('Título de ' + nome(campeao) + ' adicionado.');
+  }
+
   function ligarCampeoes() {
+    const formMan = $('#formManual');
+    if (formMan) formMan.addEventListener('submit', e => { e.preventDefault(); adicionarCampeaoManual(); });
+
+    document.querySelectorAll('[data-editar-data]').forEach(b => {
+      b.addEventListener('click', () => {
+        ui.editandoData = b.dataset.editarData;
+        render();
+        const campo = document.querySelector('.data-edit input');
+        if (campo) campo.focus();
+      });
+    });
+    document.querySelectorAll('[data-cancelar-data]').forEach(b => {
+      b.addEventListener('click', () => { ui.editandoData = null; render(); });
+    });
+    document.querySelectorAll('[data-form-data]').forEach(f => {
+      f.addEventListener('submit', e => {
+        e.preventDefault();
+        const nova = f.querySelector('input').value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(nova) || nova > hojeISO()) {
+          toast('Data inválida ou no futuro.', 'erro');
+          return;
+        }
+        const h = estado.historico.find(x => x.id === f.dataset.formData);
+        if (h) h.data = nova;
+        estado.historico.sort((x, y) => y.data.localeCompare(x.data));
+        ui.editandoData = null;
+        salvar();
+        render();
+        toast('Data atualizada.');
+      });
+    });
+
     document.querySelectorAll('[data-excluir]').forEach(b => {
       b.addEventListener('click', () => {
         const h = estado.historico.find(x => x.id === b.dataset.excluir);
@@ -1285,6 +1539,7 @@
             estado = {
               pessoas: dados.pessoas.map(p => ({ id: p.id, nome: p.nome, removida: !!p.removida })),
               historico: dados.historico,
+              edicoesSemeadas: true,
               campeonatoAtual: dados.campeonatoAtual ? Copa.derivar(dados.campeonatoAtual) : null,
               tema: dados.tema || { destaque: Copa.DESTAQUES[0] },
               selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
@@ -1314,17 +1569,46 @@
 
   let abaRenderizada = null;
 
+  // Posição de cada [data-flip] relativa ao próprio pai: assim mudanças acima da lista não contam como movimento.
+  function medirFlip() {
+    const m = new Map();
+    document.querySelectorAll('#vista [data-flip]').forEach(el => {
+      m.set(el.dataset.flip, el.getBoundingClientRect().top - el.parentElement.getBoundingClientRect().top);
+    });
+    return m;
+  }
+
+  function animarFlip(antes) {
+    const grupos = new Set([...antes.keys()].map(k => k.split(':')[0]));
+    document.querySelectorAll('#vista [data-flip]').forEach(el => {
+      const k = el.dataset.flip;
+      if (antes.has(k)) {
+        const dy = antes.get(k) - (el.getBoundingClientRect().top - el.parentElement.getBoundingClientRect().top);
+        if (Math.abs(dy) < 2) return;
+        el.animate([{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }],
+          { duration: 560, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+        el.classList.add(dy > 0 ? 'subiu' : 'desceu');
+      } else if (grupos.has(k.split(':')[0])) {
+        el.classList.add('novo');
+      }
+    });
+  }
+
   function render() {
     atualizarCabecalho();
+    posicionarIndicador(abaRenderizada === null);
     const [view, ligar] = VIEWS[ui.aba];
     const vista = $('#vista');
-    const html = '<div class="vista' + (abaRenderizada === ui.aba ? ' mesma' : '') + '">' + view() + '</div>';
-    vista.innerHTML = html;
+    const mesma = abaRenderizada === ui.aba;
+    const antes = mesma && !reduzMovimento.matches ? medirFlip() : null;
+    vista.innerHTML = '<div class="vista' + (mesma ? ' mesma' : '') + (ui.vt ? ' vt' : '') + '">' + view() + '</div>';
+    ui.vt = false;
     abaRenderizada = ui.aba;
+    if (antes && antes.size) animarFlip(antes);
     ligar();
   }
 
-  document.getElementById('rotuloAno').textContent = '// Disputa de pênaltis · ' + new Date().getFullYear();
+  document.getElementById('rotuloAno').textContent = '// Copa de mesa-gol · ' + new Date().getFullYear();
   document.getElementById('heroArte').innerHTML = mesaGol({ heroi: true });
   aplicarTema();
   irPara(estado.campeonatoAtual && Copa.comecou(estado.campeonatoAtual) && estado.campeonatoAtual.estado !== 'encerrado' ? 'aovivo' : 'campeonato');
