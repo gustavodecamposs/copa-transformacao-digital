@@ -50,7 +50,8 @@
       campeonatoAtual: null,
       tema: { destaque: Copa.DESTAQUES[0] },
       selecao: ['p1', 'p2', 'p3'],
-      modoVivo: 'placar'
+      modoVivo: 'placar',
+      formato3: 'b'
     };
     semearEdicoes(e);
     return e;
@@ -83,7 +84,8 @@
       campeonatoAtual: campeonato,
       tema: dados.tema && Copa.DESTAQUES.includes(dados.tema.destaque) ? dados.tema : { destaque: Copa.DESTAQUES[0] },
       selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
-      modoVivo: dados.modoVivo === 'chave' ? 'chave' : 'placar'
+      modoVivo: dados.modoVivo === 'chave' ? 'chave' : 'placar',
+      formato3: dados.formato3 === 'c' ? 'c' : 'b'
     };
   }
 
@@ -368,7 +370,17 @@
     const erro = Copa.validarQuantidade(n);
     if (erro) return { ok: false, texto: '<strong>' + esc(erro) + '</strong>' };
     if (n === 2) return { ok: true, texto: '<strong>2 jogadores:</strong> partida única, direto na final.' };
-    if (n === 3) return { ok: true, texto: '<strong>3 jogadores:</strong> Fase 1 com 3 jogos. 2º × 3º na semi. O 1º espera na final.' };
+    if (n === 3) {
+      const b = estado.formato3 !== 'c';
+      const opcao = (id, titulo, desc) =>
+        '<button type="button" class="opcao-formato" role="radio" data-formato3="' + id + '" aria-checked="' + (b === (id === 'b')) + '">' +
+          '<strong>' + titulo + '</strong><span>' + desc + '</span></button>';
+      return { ok: true, texto: '<strong>3 jogadores:</strong> escolha o formato.' +
+        '<div class="opcoes-formato" role="radiogroup" aria-label="Formato para 3 jogadores">' +
+          opcao('b', 'B · Fase 1 + final', '3 jogos todos contra todos. Os 2 melhores jogam a final, o 3º fica fora. 4 jogos.') +
+          opcao('c', 'C · Turno e returno', 'Todos contra todos duas vezes. Quem somar mais pontos é campeão, sem final. 6 jogos.') +
+        '</div>' };
+    }
     const jogos = n * (n - 1) / 2;
     return { ok: true, texto: '<strong>' + n + ' jogadores:</strong> Fase 1 com ' + jogos + ' jogos. Semis 1º × 4º e 2º × 3º. Vencedores na final.' };
   }
@@ -602,7 +614,7 @@
     const n = c.participantes.length;
     const f = c.final;
     const vagaA = f && f.a ? slot(f.a, rolar, chegou(vivo, f, 'a')) : (n === 3 ? '1º da Fase 1' : 'Vencedor da semi 1');
-    const vagaB = f && f.b ? slot(f.b, rolar, chegou(vivo, f, 'b')) : (n === 3 ? 'Vencedor da semi' : 'Vencedor da semi 2');
+    const vagaB = f && f.b ? slot(f.b, rolar, chegou(vivo, f, 'b')) : (n === 3 ? '2º da Fase 1' : 'Vencedor da semi 2');
     const emJogo = f && f.id === atualId;
     return '' +
       '<article class="cartao cartao-final' + (emJogo ? ' jogando' : '') + clsAcabou(vivo, f) + '">' +
@@ -626,18 +638,20 @@
       return '<div class="chave so-final"><div class="col">' + final + selo + '</div></div>';
     }
 
-    const fase1 = '<div class="col"><p class="col-rotulo">Fase 1 · todos contra todos</p>' +
+    const rotuloFase1 = c.formato === 'c' ? 'Turno e returno · líder campeão' : 'Fase 1 · todos contra todos';
+    const fase1 = '<div class="col"><p class="col-rotulo">' + rotuloFase1 + '</p>' +
       c.fase1.map((m, i) => cartaoFase1(c, m, atualId, rolar, i, vivo)).join('') + '</div>';
 
-    let semis;
+    if (c.formato === 'c') {
+      return '<div class="chave duas">' + fase1 + '<div class="liga reta" aria-hidden="true"></div><div class="col">' + selo + '</div></div>';
+    }
     if (n === 3) {
-      semis = '<div class="col"><div class="direto">1º direto</div>' + cartaoSemi(c, c.semis[0], 0, atualId, vivo) + '</div>';
-    } else {
-      semis = '<div class="col"><p class="col-rotulo">Semifinais</p>' + cartaoSemi(c, c.semis[0], 0, atualId, vivo) + cartaoSemi(c, c.semis[1], 1, atualId, vivo) + '</div>';
+      return '<div class="chave duas">' + fase1 + '<div class="liga reta" aria-hidden="true"></div><div class="col">' + final + selo + '</div></div>';
     }
 
+    const semis = '<div class="col"><p class="col-rotulo">Semifinais</p>' + cartaoSemi(c, c.semis[0], 0, atualId, vivo) + cartaoSemi(c, c.semis[1], 1, atualId, vivo) + '</div>';
     return '<div class="chave">' + fase1 + '<div class="liga" aria-hidden="true"></div>' + semis +
-      '<div class="liga' + (n === 3 ? ' reta' : '') + '" aria-hidden="true"></div><div class="col">' + final + selo + '</div></div>';
+      '<div class="liga" aria-hidden="true"></div><div class="col">' + final + selo + '</div></div>';
   }
 
   function tabelaClassificacao(c, titulo) {
@@ -645,11 +659,14 @@
     const { tabela } = Copa.classificar(c.participantes, c.fase1, c.desempates);
     const n = c.participantes.length;
     const classe = pos => {
-      if (n === 3) return pos === 1 ? 'vaga-direta' : 'vaga-semi';
+      if (c.formato === 'c') return pos === 1 ? 'vaga-direta' : '';
+      if (n === 3) return pos <= 2 ? 'vaga-direta' : '';
       return pos <= 4 ? 'vaga-semi' : '';
     };
-    const legenda = n === 3
-      ? '<span><i style="background:var(--accent)"></i>Direto na final</span><span><i style="background:var(--fg-soft)"></i>Semifinal</span>'
+    const legenda = c.formato === 'c'
+      ? '<span><i style="background:var(--accent)"></i>Campeão (líder da tabela)</span>'
+      : n === 3
+      ? '<span><i style="background:var(--accent)"></i>Final (1º × 2º)</span>'
       : '<span><i style="background:var(--fg-soft)"></i>Semifinais (1º × 4º, 2º × 3º)</span>';
     return '' +
       '<section class="painel" aria-labelledby="t-classif">' +
@@ -751,7 +768,7 @@
     if (erro) { toast(erro, 'erro'); return; }
     if (ui.sorteando) return;
 
-    const novo = Copa.criarCampeonato(estado.selecao.slice());
+    const novo = Copa.criarCampeonato(estado.selecao.slice(), Math.random, estado.formato3);
     estado.campeonatoAtual = novo;
     ui.resultadoVisivel = null;
     salvar();
@@ -1099,7 +1116,7 @@
 
   function viewDesempate(c) {
     if (ui.desempateRevelado) {
-      const proximo = c.empatePendente ? 'Próximo desempate' : 'Seguir para a semifinal';
+      const proximo = c.empatePendente ? 'Próximo desempate' : (c.estado === 'encerrado' ? 'Ver campeão' : c.participantes.length === 3 ? 'Seguir para a final' : 'Seguir para a semifinal');
       return '' +
         '<section class="painel palco" aria-labelledby="t-des">' +
           '<h2 class="fase-rotulo" id="t-des">Desempate por sorteio · resultado</h2>' +
@@ -1129,7 +1146,7 @@
         '<h2 class="sr" id="t-camp">Campeão</h2>' +
         '<div class="selo carimba">Campeão</div>' +
         '<p class="campeao-nome" aria-label="' + esc(nome(c.campeao)) + '">' + letras + '</p>' +
-        '<p class="vice">Vice: ' + esc(nome(c.vice)) + ' · Final ' + placarDe(c.final).replace('–', ' × ') + '</p>' +
+        '<p class="vice">Vice: ' + esc(nome(c.vice)) + '' + (c.final ? ' · Final ' + placarDe(c.final).replace('–', ' × ') : '') + '</p>' +
         '<div class="acoes">' +
           (jaSalvo
             ? '<span class="salvo-ok">' + ICONE.check + 'Salvo no histórico</span>'
@@ -1548,7 +1565,8 @@
               campeonatoAtual: dados.campeonatoAtual ? Copa.derivar(dados.campeonatoAtual) : null,
               tema: dados.tema || { destaque: Copa.DESTAQUES[0] },
               selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
-              modoVivo: estado.modoVivo
+              modoVivo: estado.modoVivo,
+              formato3: dados.formato3 === 'c' ? 'c' : 'b'
             };
             Object.assign(ui, { resultadoVisivel: null, desempateRevelado: null, placarAnterior: null });
             aplicarTema();
@@ -1612,6 +1630,15 @@
     if (antes && antes.size) animarFlip(antes);
     ligar();
   }
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-formato3]');
+    if (!b) return;
+    if (estado.campeonatoAtual) { toast('Reinicie o campeonato para mudar o formato.', 'erro'); return; }
+    estado.formato3 = b.dataset.formato3 === 'c' ? 'c' : 'b';
+    salvar();
+    render();
+  });
 
   document.getElementById('rotuloAno').textContent = '// Copa de mesa-gol · ' + new Date().getFullYear();
   document.getElementById('heroArte').innerHTML = mesaGol({ heroi: true });

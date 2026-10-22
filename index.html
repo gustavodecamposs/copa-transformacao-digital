@@ -394,6 +394,17 @@ select.campo option { background: var(--bg-deep); color: var(--fg); }
 }
 .formato strong { color: var(--fg); font-weight: 700; }
 .formato.invalido strong { color: var(--danger); }
+.opcoes-formato { display: grid; gap: 10px; margin-top: 12px; text-align: left; }
+@media (min-width: 560px) { .opcoes-formato { grid-template-columns: 1fr 1fr; } }
+.opcao-formato {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; cursor: pointer;
+  border: 2px solid rgba(244, 247, 239, .14); background: transparent; color: var(--fg-soft);
+  font: inherit; text-align: left; transition: border-color .2s, background .2s, transform .2s var(--ease-spring);
+}
+.opcao-formato strong { color: var(--fg); }
+.opcao-formato[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.opcao-formato:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.opcao-formato:active { transform: scale(.98); }
 
 .temas { display: flex; gap: 12px; flex-wrap: wrap; }
 .tema {
@@ -428,6 +439,7 @@ select.campo option { background: var(--bg-deep); color: var(--fg); }
 
 @media (min-width: 900px) {
   .chave { grid-template-columns: minmax(0, 1.25fr) 44px minmax(0, 1fr) 44px minmax(0, 1fr); align-items: center; }
+  .chave.duas { grid-template-columns: minmax(0, 1.25fr) 44px minmax(0, 1fr); }
   .chave.so-final { grid-template-columns: minmax(0, 420px); justify-content: center; }
   .liga { height: auto; align-self: stretch; margin: 26px 0 0; }
   .liga::before {

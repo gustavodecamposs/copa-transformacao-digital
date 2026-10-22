@@ -171,7 +171,8 @@
 
   /* ---------- campeonato: base + eventos ---------- */
 
-  function criarCampeonato(participantes, rnd) {
+  // Formato só vale com 3 jogadores: 'b' = fase 1 + final entre os 2 melhores; 'c' = turno e returno, líder campeão.
+  function criarCampeonato(participantes, rnd, formato) {
     rnd = rnd || Math.random;
     const erro = validarQuantidade(participantes.length);
     if (erro) throw new Error(erro);
@@ -180,11 +181,20 @@
     const numeros = {};
     ordem.forEach((id, i) => { numeros[id] = i + 1; });
 
+    formato = participantes.length === 3 && formato === 'c' ? 'c' : 'b';
+    let fase1Base = participantes.length === 2 ? [] : gerarFase1(ordem, rnd);
+    if (formato === 'c') {
+      const returno = fase1Base.map((m, i) =>
+        ({ id: 'm' + (fase1Base.length + i + 1), a: m.b, b: m.a, primeiro: sortearLado(rnd) }));
+      fase1Base = fase1Base.concat(returno);
+    }
+
     const base = {
       id: gerarId('c'),
+      formato,
       participantes: participantes.slice(),
       numeros,
-      fase1Base: participantes.length === 2 ? [] : gerarFase1(ordem, rnd),
+      fase1Base,
       finalDireta: participantes.length === 2
         ? { a: ordem[0], b: ordem[1] }
         : null,
@@ -214,7 +224,7 @@
   }
 
   function vagasDecisivas(n) {
-    return n === 3 ? 3 : 4;
+    return n === 3 ? 2 : 4;
   }
 
   function avancar(c) {
@@ -231,22 +241,27 @@
       }
       c.empatePendente = null;
       const t = tabela.map(l => l.id);
+      if (c.formato === 'c') {
+        c.estado = 'encerrado';
+        c.campeao = t[0];
+        c.vice = t[1];
+        return;
+      }
       if (n === 3) {
-        c.semis = [novaPartida('s1', t[1], t[2], c.primeiros.semis[0])];
-        c.final = novaPartida('f', t[0], null, c.primeiros.final);
+        c.final = novaPartida('f', t[0], t[1], c.primeiros.final);
+        c.estado = 'final';
       } else {
         c.semis = [
           novaPartida('s1', t[0], t[3], c.primeiros.semis[0]),
           novaPartida('s2', t[1], t[2], c.primeiros.semis[1])
         ];
         c.final = novaPartida('f', null, null, c.primeiros.final);
+        c.estado = 'semis';
       }
-      c.estado = 'semis';
     }
 
     if (c.estado === 'semis' && c.semis.every(m => m.vencedor)) {
-      if (n === 3) c.final.b = c.semis[0].vencedor;
-      else { c.final.a = c.semis[0].vencedor; c.final.b = c.semis[1].vencedor; }
+      c.final.a = c.semis[0].vencedor; c.final.b = c.semis[1].vencedor;
       c.estado = 'final';
     }
 
@@ -260,6 +275,7 @@
   function derivar(base) {
     const c = {
       id: base.id,
+      formato: base.formato === 'c' ? 'c' : 'b',
       participantes: base.participantes.slice(),
       numeros: Object.assign({}, base.numeros),
       fase1Base: base.fase1Base.map(m => Object.assign({}, m)),
