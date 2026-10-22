@@ -41,15 +41,6 @@
 
   /* ---------- sorteio da fase 1 ---------- */
 
-  function conflitos(ordem) {
-    let n = 0;
-    for (let i = 1; i < ordem.length; i++) {
-      const [a1, b1] = ordem[i - 1], [a2, b2] = ordem[i];
-      if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) n++;
-    }
-    return n;
-  }
-
   function compartilham(p, q) {
     return p.includes(q[0]) || p.includes(q[1]);
   }
@@ -276,7 +267,6 @@
       primeiros: { semis: base.primeiros.semis.slice(), final: base.primeiros.final },
       eventos: base.eventos.map(e => JSON.parse(JSON.stringify(e))),
       salvo: !!base.salvo,
-      sorteado: true,
       fase1: base.fase1Base.map(m => novaPartida(m.id, m.a, m.b, m.primeiro)),
       semis: [],
       final: null,
@@ -295,14 +285,17 @@
       if (ev.tipo === 'resultado') {
         const m = partidaAtual(c);
         if (!m || !m.a || !m.b) throw new Error('Evento de resultado sem partida em andamento.');
+        const erro = validarPlacar(ev.golsA, ev.golsB, permiteEmpate(c, m));
+        if (erro) throw new Error(erro);
         const resultado = { golsA: ev.golsA, golsB: ev.golsB };
         const s = estadoSerie(resultado);
-        if (!s.terminou && !permiteEmpate(c, m)) throw new Error('Resultado não pode terminar empatado.');
         m.resultado = resultado;
         m.vencedor = s.vencedor === 'a' ? m.a : s.vencedor === 'b' ? m.b : null;
         m.encerrada = true;
       } else if (ev.tipo === 'desempate') {
         c.desempates.push(ev.ordem.slice());
+      } else {
+        throw new Error('Evento desconhecido: ' + ev.tipo + '.');
       }
       avancar(c);
     }
@@ -436,7 +429,7 @@
   const Copa = {
     MIN_JOGADORES, MAX_JOGADORES, DESTAQUES,
     gerarId, embaralhar, validarQuantidade,
-    estadoSerie, gerarFase1, conflitos, validarPlacar, permiteEmpate,
+    estadoSerie, gerarFase1, validarPlacar, permiteEmpate,
     classificar, criarCampeonato, derivar, partidaAtual,
     registrarResultado, registrarDesempate, desfazer, podeDesfazer, comecou,
     calcularRanking, registroHistorico, validarDados

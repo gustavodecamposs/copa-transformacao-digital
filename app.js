@@ -57,13 +57,18 @@
   }
 
   function carregar() {
-    let dados;
-    try { dados = JSON.parse(localStorage.getItem(CHAVE)); } catch (e) { dados = null; }
-    if (!dados) return estadoInicial();
+    let bruto = null, dados = null;
+    try { bruto = localStorage.getItem(CHAVE); dados = JSON.parse(bruto); } catch (e) { dados = null; }
+    // O próximo salvar() sobrescreve a chave: guarda uma cópia do que não passou na validação.
+    const recomecar = () => {
+      try { if (bruto) localStorage.setItem(CHAVE + '-quebrado', bruto); } catch (e) {}
+      return estadoInicial();
+    };
+    if (!dados) return recomecar();
 
     const camp = dados.campeonatoAtual;
     const semCamp = Object.assign({}, dados, { campeonatoAtual: null });
-    if (Copa.validarDados(semCamp)) return estadoInicial();
+    if (Copa.validarDados(semCamp)) return recomecar();
 
     let campeonato = null;
     if (camp && !Copa.validarDados(dados)) {
@@ -1253,7 +1258,7 @@
 
   function desfazer() {
     const c = estado.campeonatoAtual;
-    if (!Copa.podeDesfazer(c)) return;
+    if (ui.sorteandoDesempate || !Copa.podeDesfazer(c)) return;
     estado.campeonatoAtual = Copa.desfazer(c);
     ui.diff = null;
     ui.resultadoVisivel = null;
