@@ -53,8 +53,7 @@
       campeonatoAtual: null,
       tema: { destaque: Copa.DESTAQUES[0] },
       selecao: ['p1', 'p2', 'p3'],
-      modoVivo: 'placar',
-      formato3: 'b'
+      modoVivo: 'placar'
     };
     semearEdicoes(e);
     return e;
@@ -80,8 +79,7 @@
       campeonatoAtual: campeonato,
       tema: dados.tema && Copa.DESTAQUES.includes(dados.tema.destaque) ? dados.tema : { destaque: Copa.DESTAQUES[0] },
       selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
-      modoVivo: dados.modoVivo === 'chave' ? 'chave' : 'placar',
-      formato3: dados.formato3 === 'c' ? 'c' : 'b'
+      modoVivo: dados.modoVivo === 'chave' ? 'chave' : 'placar'
     };
   }
 
@@ -442,16 +440,9 @@
     if (n === 2) return { ok: true, texto: '<strong>2 jogadores:</strong> partida única, direto na final.' };
     if (n === 3 || n === 4) {
       const turno = n * (n - 1) / 2;
-      const b = estado.formato3 !== 'c';
-      const opcao = (id, titulo, desc) =>
-        '<button type="button" class="opcao-formato" role="radio" data-formato3="' + id + '" aria-checked="' + (b === (id === 'b')) + '">' +
-          '<strong>' + titulo + '</strong><span>' + desc + '</span></button>';
       const fora = n === 3 ? 'o 3º fica fora' : 'o 3º e o 4º ficam fora';
-      return { ok: true, texto: '<strong>' + n + ' jogadores:</strong> escolha o formato.' +
-        '<div class="opcoes-formato" role="radiogroup" aria-label="Formato para ' + n + ' jogadores">' +
-          opcao('b', 'B · Turno + final', turno + ' jogos todos contra todos. Os 2 melhores jogam a final, ' + fora + '. ' + (turno + 1) + ' jogos.') +
-          opcao('c', 'C · Turno e returno + final', 'Todos contra todos duas vezes, depois a final entre os 2 melhores. ' + (turno * 2 + 1) + ' jogos.') +
-        '</div>' };
+      return { ok: true, texto: '<strong>' + n + ' jogadores:</strong> turno único com ' + turno +
+        ' jogos, todos contra todos. Os 2 melhores jogam a final, ' + fora + '. ' + (turno + 1) + ' jogos no total.' };
     }
     const jogos = n * (n - 1) / 2;
     return { ok: true, texto: '<strong>' + n + ' jogadores:</strong> Fase 1 com ' + jogos + ' jogos. Semis 1º × 4º e 2º × 3º. Vencedores na final.' };
@@ -834,7 +825,7 @@
     if (erro) { toast(erro, 'erro'); return; }
     if (ui.sorteando) return;
 
-    const novo = Copa.criarCampeonato(estado.selecao.slice(), Math.random, estado.formato3);
+    const novo = Copa.criarCampeonato(estado.selecao.slice(), Math.random);
     estado.campeonatoAtual = novo;
     ui.resultadoVisivel = null;
     salvar();
@@ -1638,8 +1629,7 @@
               campeonatoAtual: dados.campeonatoAtual ? Copa.derivar(dados.campeonatoAtual) : null,
               tema: dados.tema || { destaque: Copa.DESTAQUES[0] },
               selecao: Array.isArray(dados.selecao) ? dados.selecao.filter(id => ativos.includes(id)) : ativos.slice(0, Copa.MAX_JOGADORES),
-              modoVivo: estado.modoVivo,
-              formato3: dados.formato3 === 'c' ? 'c' : 'b'
+              modoVivo: estado.modoVivo
             };
             Object.assign(ui, { resultadoVisivel: null, desempateRevelado: null, placarAnterior: null });
             aplicarTema();
@@ -1703,15 +1693,6 @@
     if (antes && antes.size) animarFlip(antes);
     ligar();
   }
-
-  document.addEventListener('click', e => {
-    const b = e.target.closest('[data-formato3]');
-    if (!b) return;
-    if (estado.campeonatoAtual) { toast('Reinicie o campeonato para mudar o formato.', 'erro'); return; }
-    estado.formato3 = b.dataset.formato3 === 'c' ? 'c' : 'b';
-    salvar();
-    render();
-  });
 
   document.getElementById('rotuloAno').textContent = '// Copa de mesa-gol · ' + new Date().getFullYear();
   document.getElementById('heroArte').innerHTML = mesaGol({ heroi: true });

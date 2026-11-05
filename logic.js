@@ -171,8 +171,8 @@
 
   /* ---------- campeonato: base + eventos ---------- */
 
-  // Formato só vale com 3 ou 4 jogadores: 'b' = turno único, 'c' = turno e returno. Ambos terminam na final 1º × 2º.
-  function criarCampeonato(participantes, rnd, formato) {
+  // Todo campeonato é turno único + final 1º × 2º. O campo formato sobrevive só para abrir campeonatos antigos em 'c' (turno e returno).
+  function criarCampeonato(participantes, rnd) {
     rnd = rnd || Math.random;
     const erro = validarQuantidade(participantes.length);
     if (erro) throw new Error(erro);
@@ -181,18 +181,11 @@
     const numeros = {};
     ordem.forEach((id, i) => { numeros[id] = i + 1; });
 
-    const aceitaC = participantes.length === 3 || participantes.length === 4;
-    formato = aceitaC && formato === 'c' ? 'c' : 'b';
-    let fase1Base = participantes.length === 2 ? [] : gerarFase1(ordem, rnd);
-    if (formato === 'c') {
-      const returno = fase1Base.map((m, i) =>
-        ({ id: 'm' + (fase1Base.length + i + 1), a: m.b, b: m.a, primeiro: sortearLado(rnd) }));
-      fase1Base = fase1Base.concat(returno);
-    }
+    const fase1Base = participantes.length === 2 ? [] : gerarFase1(ordem, rnd);
 
     const base = {
       id: gerarId('c'),
-      formato,
+      formato: 'b',
       participantes: participantes.slice(),
       numeros,
       fase1Base,
