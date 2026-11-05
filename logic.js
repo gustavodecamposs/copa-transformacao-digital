@@ -171,7 +171,7 @@
 
   /* ---------- campeonato: base + eventos ---------- */
 
-  // Formato só vale com 3 jogadores: 'b' = fase 1 + final entre os 2 melhores; 'c' = turno e returno, líder campeão.
+  // Formato só vale com 3 ou 4 jogadores: 'b' = turno único, 'c' = turno e returno. Ambos terminam na final 1º × 2º.
   function criarCampeonato(participantes, rnd, formato) {
     rnd = rnd || Math.random;
     const erro = validarQuantidade(participantes.length);
@@ -181,7 +181,8 @@
     const numeros = {};
     ordem.forEach((id, i) => { numeros[id] = i + 1; });
 
-    formato = participantes.length === 3 && formato === 'c' ? 'c' : 'b';
+    const aceitaC = participantes.length === 3 || participantes.length === 4;
+    formato = aceitaC && formato === 'c' ? 'c' : 'b';
     let fase1Base = participantes.length === 2 ? [] : gerarFase1(ordem, rnd);
     if (formato === 'c') {
       const returno = fase1Base.map((m, i) =>
@@ -223,8 +224,9 @@
     return c.fase1.indexOf(m) >= 0;
   }
 
+  // Com até 4 jogadores a final é direta (1º × 2º), então só o topo da tabela precisa estar desempatado.
   function vagasDecisivas(n) {
-    return n === 3 ? 2 : 4;
+    return n <= 4 ? 2 : 4;
   }
 
   function avancar(c) {
@@ -241,13 +243,7 @@
       }
       c.empatePendente = null;
       const t = tabela.map(l => l.id);
-      if (c.formato === 'c') {
-        c.estado = 'encerrado';
-        c.campeao = t[0];
-        c.vice = t[1];
-        return;
-      }
-      if (n === 3) {
+      if (n <= 4) {
         c.final = novaPartida('f', t[0], t[1], c.primeiros.final);
         c.estado = 'final';
       } else {

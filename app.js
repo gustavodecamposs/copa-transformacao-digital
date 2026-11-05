@@ -2,6 +2,9 @@
   'use strict';
 
   const CHAVE = 'copa-transformacao-digital';
+  // Preencha para sincronizar entre navegadores (veja README). Vazio = só localStorage.
+  const SUPABASE_URL = '';
+  const SUPABASE_KEY = '';
   const NOMES_INICIAIS = ['Pedro', 'Isaque', 'Gustavo'];
   const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -57,19 +60,12 @@
     return e;
   }
 
-  function carregar() {
-    let bruto = null, dados = null;
-    try { bruto = localStorage.getItem(CHAVE); dados = JSON.parse(bruto); } catch (e) { dados = null; }
-    // O próximo salvar() sobrescreve a chave: guarda uma cópia do que não passou na validação.
-    const recomecar = () => {
-      try { if (bruto) localStorage.setItem(CHAVE + '-quebrado', bruto); } catch (e) {}
-      return estadoInicial();
-    };
-    if (!dados) return recomecar();
-
+  // Valida e normaliza dados de qualquer origem (local ou remota). null = inválido.
+  function normalizar(dados) {
+    if (!dados) return null;
     const camp = dados.campeonatoAtual;
     const semCamp = Object.assign({}, dados, { campeonatoAtual: null });
-    if (Copa.validarDados(semCamp)) return recomecar();
+    if (Copa.validarDados(semCamp)) return null;
 
     let campeonato = null;
     if (camp && !Copa.validarDados(dados)) {
@@ -89,6 +85,16 @@
     };
   }
 
+  function carregar() {
+    let bruto = null, dados = null;
+    try { bruto = localStorage.getItem(CHAVE); dados = JSON.parse(bruto); } catch (e) { dados = null; }
+    const estadoValido = normalizar(dados);
+    if (estadoValido) return estadoValido;
+    // O próximo salvar() sobrescreve a chave: guarda uma cópia do que não passou na validação.
+    try { if (bruto) localStorage.setItem(CHAVE + '-quebrado', bruto); } catch (e) {}
+    return estadoInicial();
+  }
+
   let estado = carregar();
 
   function salvar() {
@@ -96,6 +102,70 @@
       localStorage.setItem(CHAVE, JSON.stringify(estado));
     } catch (e) {
       toast('Não foi possível salvar no navegador. Exporte os dados para não perder.', 'erro');
+    }
+    agendarEnvio();
+  }
+
+  /* ================= sincronização (Supabase REST) ================= */
+
+  const SYNC = !!(SUPABASE_URL && SUPABASE_KEY);
+  const ENDPOINT = SUPABASE_URL + '/rest/v1/copa';
+  const CABECALHOS = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };
+  let envioTimer = null, avisouFalha = false;
+
+  function marcarSync(texto) {
+    const t = document.getElementById('tagSync');
+    if (!t || !SYNC) return;
+    t.hidden = false;
+    t.textContent = texto;
+  }
+
+  async function puxarRemoto() {
+    const r = await fetch(ENDPOINT + '?id=eq.principal&select=dados', { headers: CABECALHOS });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const linhas = await r.json();
+    return linhas.length ? linhas[0].dados : null;
+  }
+
+  async function enviarAgora() {
+    envioTimer = null;
+    try {
+      const r = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: Object.assign({ Prefer: 'resolution=merge-duplicates' }, CABECALHOS),
+        body: JSON.stringify({ id: 'principal', dados: estado, atualizado: new Date().toISOString() })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      avisouFalha = false;
+      marcarSync('sincronizado');
+    } catch (e) {
+      marcarSync('offline');
+      if (!avisouFalha) toast('Sem conexão com o servidor. Salvo só neste navegador por enquanto.', 'erro');
+      avisouFalha = true;
+    }
+  }
+
+  function agendarEnvio() {
+    if (!SYNC) return;
+    clearTimeout(envioTimer);
+    marcarSync('salvando…');
+    envioTimer = setTimeout(enviarAgora, 800);
+  }
+
+  // Traz o dado do servidor; se o servidor está vazio, sobe o que já existe neste navegador.
+  async function sincronizar() {
+    if (!SYNC || envioTimer) return;
+    try {
+      const remoto = normalizar(await puxarRemoto());
+      if (envioTimer) return; // usuário salvou enquanto buscava: o envio vence
+      if (!remoto) { await enviarAgora(); return; }
+      marcarSync('sincronizado');
+      estado = remoto;
+      try { localStorage.setItem(CHAVE, JSON.stringify(estado)); } catch (e) {}
+      aplicarTema();
+      render();
+    } catch (e) {
+      marcarSync('offline'); // segue com o localStorage
     }
   }
 
@@ -370,15 +440,17 @@
     const erro = Copa.validarQuantidade(n);
     if (erro) return { ok: false, texto: '<strong>' + esc(erro) + '</strong>' };
     if (n === 2) return { ok: true, texto: '<strong>2 jogadores:</strong> partida única, direto na final.' };
-    if (n === 3) {
+    if (n === 3 || n === 4) {
+      const turno = n * (n - 1) / 2;
       const b = estado.formato3 !== 'c';
       const opcao = (id, titulo, desc) =>
         '<button type="button" class="opcao-formato" role="radio" data-formato3="' + id + '" aria-checked="' + (b === (id === 'b')) + '">' +
           '<strong>' + titulo + '</strong><span>' + desc + '</span></button>';
-      return { ok: true, texto: '<strong>3 jogadores:</strong> escolha o formato.' +
-        '<div class="opcoes-formato" role="radiogroup" aria-label="Formato para 3 jogadores">' +
-          opcao('b', 'B · Fase 1 + final', '3 jogos todos contra todos. Os 2 melhores jogam a final, o 3º fica fora. 4 jogos.') +
-          opcao('c', 'C · Turno e returno', 'Todos contra todos duas vezes. Quem somar mais pontos é campeão, sem final. 6 jogos.') +
+      const fora = n === 3 ? 'o 3º fica fora' : 'o 3º e o 4º ficam fora';
+      return { ok: true, texto: '<strong>' + n + ' jogadores:</strong> escolha o formato.' +
+        '<div class="opcoes-formato" role="radiogroup" aria-label="Formato para ' + n + ' jogadores">' +
+          opcao('b', 'B · Turno + final', turno + ' jogos todos contra todos. Os 2 melhores jogam a final, ' + fora + '. ' + (turno + 1) + ' jogos.') +
+          opcao('c', 'C · Turno e returno + final', 'Todos contra todos duas vezes, depois a final entre os 2 melhores. ' + (turno * 2 + 1) + ' jogos.') +
         '</div>' };
     }
     const jogos = n * (n - 1) / 2;
@@ -638,14 +710,11 @@
       return '<div class="chave so-final"><div class="col">' + final + selo + '</div></div>';
     }
 
-    const rotuloFase1 = c.formato === 'c' ? 'Turno e returno · líder campeão' : 'Fase 1 · todos contra todos';
+    const rotuloFase1 = c.formato === 'c' ? 'Turno e returno · todos contra todos' : 'Fase 1 · todos contra todos';
     const fase1 = '<div class="col"><p class="col-rotulo">' + rotuloFase1 + '</p>' +
       c.fase1.map((m, i) => cartaoFase1(c, m, atualId, rolar, i, vivo)).join('') + '</div>';
 
-    if (c.formato === 'c') {
-      return '<div class="chave duas">' + fase1 + '<div class="liga reta" aria-hidden="true"></div><div class="col">' + selo + '</div></div>';
-    }
-    if (n === 3) {
+    if (n <= 4) {
       return '<div class="chave duas">' + fase1 + '<div class="liga reta" aria-hidden="true"></div><div class="col">' + final + selo + '</div></div>';
     }
 
@@ -659,13 +728,10 @@
     const { tabela } = Copa.classificar(c.participantes, c.fase1, c.desempates);
     const n = c.participantes.length;
     const classe = pos => {
-      if (c.formato === 'c') return pos === 1 ? 'vaga-direta' : '';
-      if (n === 3) return pos <= 2 ? 'vaga-direta' : '';
+      if (n <= 4) return pos <= 2 ? 'vaga-direta' : '';
       return pos <= 4 ? 'vaga-semi' : '';
     };
-    const legenda = c.formato === 'c'
-      ? '<span><i style="background:var(--accent)"></i>Campeão (líder da tabela)</span>'
-      : n === 3
+    const legenda = n <= 4
       ? '<span><i style="background:var(--accent)"></i>Final (1º × 2º)</span>'
       : '<span><i style="background:var(--fg-soft)"></i>Semifinais (1º × 4º, 2º × 3º)</span>';
     return '' +
@@ -865,7 +931,10 @@
     if (c.estado === 'encerrado') return 'Ver campeão';
     if (c.empatePendente) return 'Ir para o desempate';
     if (c.estado === 'semis' && c.fase1.length && c.fase1[c.fase1.length - 1] === m) return 'Ir para a semifinal';
-    if (c.estado === 'final' && m !== c.final && c.semis.indexOf(m) === c.semis.length - 1) return 'Ir para a final';
+    const ultimoAntesDaFinal = c.semis.length
+      ? c.semis[c.semis.length - 1]
+      : (c.fase1.length ? c.fase1[c.fase1.length - 1] : null);
+    if (c.estado === 'final' && m !== c.final && m === ultimoAntesDaFinal) return 'Ir para a final';
     return 'Próxima partida';
   }
 
@@ -1116,7 +1185,11 @@
 
   function viewDesempate(c) {
     if (ui.desempateRevelado) {
-      const proximo = c.empatePendente ? 'Próximo desempate' : (c.estado === 'encerrado' ? 'Ver campeão' : c.participantes.length === 3 ? 'Seguir para a final' : 'Seguir para a semifinal');
+      const proximo = c.empatePendente ? 'Próximo desempate'
+        : c.estado === 'encerrado' ? 'Ver campeão'
+        : c.estado === 'final' ? 'Seguir para a final'
+        : c.estado === 'semis' ? 'Seguir para a semifinal'
+        : 'Continuar';
       return '' +
         '<section class="painel palco" aria-labelledby="t-des">' +
           '<h2 class="fase-rotulo" id="t-des">Desempate por sorteio · resultado</h2>' +
@@ -1403,7 +1476,7 @@
       '</section>' +
       '<section class="painel" aria-labelledby="t-dados">' +
         '<h2 class="painel-titulo" id="t-dados">Backup</h2>' +
-        '<p class="texto">Os dados ficam só neste navegador. Exporte para guardar ou passar para outro aparelho.</p>' +
+        '<p class="texto">' + (SYNC ? 'Os dados são sincronizados entre aparelhos. Exporte para ter um backup.' : 'Os dados ficam só neste navegador. Exporte para guardar ou passar para outro aparelho.') + '</p>' +
         '<div class="acoes" style="margin-top:16px">' +
           '<button class="btn btn-linha" id="exportar">' + ICONE.baixar + 'Exportar dados</button>' +
           '<button class="btn btn-linha" id="importar">' + ICONE.subir + 'Importar dados</button>' +
@@ -1554,7 +1627,7 @@
         if (erro) { toast('Importação recusada: ' + erro, 'erro'); return; }
         confirmar({
           titulo: 'Substituir os dados atuais?',
-          texto: 'O arquivo tem ' + dados.pessoas.length + ' pessoas e ' + dados.historico.length + ' campeonatos. Tudo o que está neste navegador será trocado.',
+          texto: 'O arquivo tem ' + dados.pessoas.length + ' pessoas e ' + dados.historico.length + ' campeonatos. Tudo o que está salvo (em todos os aparelhos) será trocado.',
           ok: 'Importar',
           aoConfirmar: () => {
             const ativos = dados.pessoas.filter(p => !p.removida).map(p => p.id);
@@ -1644,4 +1717,6 @@
   document.getElementById('heroArte').innerHTML = mesaGol({ heroi: true });
   aplicarTema();
   irPara(estado.campeonatoAtual && Copa.comecou(estado.campeonatoAtual) && estado.campeonatoAtual.estado !== 'encerrado' ? 'aovivo' : 'campeonato');
+  sincronizar();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizar(); });
 })();
