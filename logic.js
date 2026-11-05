@@ -171,8 +171,8 @@
 
   /* ---------- campeonato: base + eventos ---------- */
 
-  // Todo campeonato é turno único + final 1º × 2º. O campo formato sobrevive só para abrir campeonatos antigos em 'c' (turno e returno).
-  function criarCampeonato(participantes, rnd) {
+  // 'b' = turno único, 'c' = turno e returno (só com 3 ou 4 jogadores). Ambos terminam na final 1º × 2º.
+  function criarCampeonato(participantes, rnd, formato) {
     rnd = rnd || Math.random;
     const erro = validarQuantidade(participantes.length);
     if (erro) throw new Error(erro);
@@ -181,11 +181,17 @@
     const numeros = {};
     ordem.forEach((id, i) => { numeros[id] = i + 1; });
 
-    const fase1Base = participantes.length === 2 ? [] : gerarFase1(ordem, rnd);
+    formato = aceitaReturno(participantes.length) && formato === 'c' ? 'c' : 'b';
+    let fase1Base = participantes.length === 2 ? [] : gerarFase1(ordem, rnd);
+    if (formato === 'c') {
+      const returno = fase1Base.map((m, i) =>
+        ({ id: 'm' + (fase1Base.length + i + 1), a: m.b, b: m.a, primeiro: sortearLado(rnd) }));
+      fase1Base = fase1Base.concat(returno);
+    }
 
     const base = {
       id: gerarId('c'),
-      formato: 'b',
+      formato,
       participantes: participantes.slice(),
       numeros,
       fase1Base,
@@ -215,6 +221,10 @@
 
   function permiteEmpate(c, m) {
     return c.fase1.indexOf(m) >= 0;
+  }
+
+  function aceitaReturno(n) {
+    return n === 3 || n === 4;
   }
 
   // Com até 4 jogadores a final é direta (1º × 2º), então só o topo da tabela precisa estar desempatado.
@@ -434,7 +444,7 @@
   const Copa = {
     MIN_JOGADORES, MAX_JOGADORES, DESTAQUES,
     gerarId, embaralhar, validarQuantidade,
-    estadoSerie, gerarFase1, validarPlacar, permiteEmpate,
+    estadoSerie, gerarFase1, validarPlacar, permiteEmpate, aceitaReturno,
     classificar, criarCampeonato, derivar, partidaAtual,
     registrarResultado, registrarDesempate, desfazer, podeDesfazer, comecou,
     calcularRanking, registroHistorico, validarDados

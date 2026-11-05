@@ -442,7 +442,8 @@
       const turno = n * (n - 1) / 2;
       const fora = n === 3 ? 'o 3º fica fora' : 'o 3º e o 4º ficam fora';
       return { ok: true, texto: '<strong>' + n + ' jogadores:</strong> turno único com ' + turno +
-        ' jogos, todos contra todos. Os 2 melhores jogam a final, ' + fora + '. ' + (turno + 1) + ' jogos no total.' };
+        ' jogos, todos contra todos. Os 2 melhores jogam a final, ' + fora + '. ' + (turno + 1) + ' jogos no total.' +
+        ' No sorteio dá para trocar para turno e returno.' };
     }
     const jogos = n * (n - 1) / 2;
     return { ok: true, texto: '<strong>' + n + ' jogadores:</strong> Fase 1 com ' + jogos + ' jogos. Semis 1º × 4º e 2º × 3º. Vencedores na final.' };
@@ -768,9 +769,14 @@
     }
 
     const comecou = Copa.comecou(c);
-    const acoes = comecou
+    const outroFormato = c.formato === 'c' ? 'b' : 'c';
+    const trocaModo = !comecou && Copa.aceitaReturno(c.participantes.length)
+      ? '<button class="btn btn-linha" id="trocarFormato" data-formato="' + outroFormato + '">' +
+          (outroFormato === 'c' ? 'Usar turno e returno' : 'Usar turno único') + '</button>'
+      : '';
+    const acoes = (comecou
       ? '<button class="btn btn-perigo" id="reiniciar">' + ICONE.reiniciar + 'Reiniciar campeonato</button>'
-      : '<button class="btn btn-linha" id="sortear">' + ICONE.sorteio + 'Sortear de novo</button>';
+      : '<button class="btn btn-linha" id="sortear">' + ICONE.sorteio + 'Sortear de novo</button>') + trocaModo;
     const irVivo = c.estado === 'encerrado'
       ? '<button class="btn btn-acc" id="irVivo">Ver campeão' + ICONE.seta + '</button>'
       : '<button class="btn btn-acc" id="irVivo">' + (comecou ? 'Voltar ao ao vivo' : 'Começar ao vivo') + ICONE.seta + '</button>';
@@ -797,7 +803,10 @@
 
   function ligarCampeonato() {
     const sortear = $('#sortear');
-    if (sortear) sortear.addEventListener('click', sortearChave);
+    const c = estado.campeonatoAtual;
+    if (sortear) sortear.addEventListener('click', () => sortearChave(c && c.formato));
+    const trocar = $('#trocarFormato');
+    if (trocar) trocar.addEventListener('click', () => sortearChave(trocar.dataset.formato));
     const editar = $('#editarSel');
     if (editar) editar.addEventListener('click', () => irPara('participantes'));
     const irVivo = $('#irVivo');
@@ -820,12 +829,12 @@
     });
   }
 
-  function sortearChave() {
+  function sortearChave(formato) {
     const erro = Copa.validarQuantidade(estado.selecao.length);
     if (erro) { toast(erro, 'erro'); return; }
     if (ui.sorteando) return;
 
-    const novo = Copa.criarCampeonato(estado.selecao.slice(), Math.random);
+    const novo = Copa.criarCampeonato(estado.selecao.slice(), Math.random, formato);
     estado.campeonatoAtual = novo;
     ui.resultadoVisivel = null;
     salvar();
@@ -836,7 +845,7 @@
     render();
     const alvo = $('#chave');
     alvo.innerHTML = chaveamento(novo, true);
-    document.querySelectorAll('#sortear, #irVivo, #reiniciar').forEach(b => { b.disabled = true; });
+    document.querySelectorAll('#sortear, #irVivo, #reiniciar, #trocarFormato').forEach(b => { b.disabled = true; });
 
     const nomes = novo.participantes.map(nome);
     const cartoes = [...alvo.querySelectorAll('.cartao')].filter(el => el.querySelector('.slot.rolando'));

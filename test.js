@@ -46,10 +46,18 @@ assert.equal(k.estado, 'encerrado');
 assert.equal(k.campeao, k.final.b);
 assert.equal(k.vice, k.final.a);
 
-// Um 3º argumento antigo pedindo returno é ignorado: continua turno único.
-const legado = Copa.criarCampeonato(['p', 'q', 'r', 's'], rnd, 'c');
-assert.equal(legado.formato, 'b');
-assert.equal(legado.fase1.length, 6);
+// Turno e returno é opcional: com 4 jogadores dobra os jogos e cada par se enfrenta 2 vezes.
+const ida = Copa.criarCampeonato(['p', 'q', 'r', 's'], rnd, 'c');
+assert.equal(ida.formato, 'c');
+assert.equal(ida.fase1.length, 12);
+const paresIda = ida.fase1.map(m => [m.a, m.b].sort().join());
+assert.equal(new Set(paresIda).size, 6);
+for (const par of new Set(paresIda)) assert.equal(paresIda.filter(x => x === par).length, 2);
+
+// Com 5 jogadores ou mais o returno não é oferecido.
+assert.equal(Copa.aceitaReturno(4), true);
+assert.equal(Copa.aceitaReturno(5), false);
+assert.equal(Copa.criarCampeonato(['a', 'b', 'c', 'd', 'e'], rnd, 'c').formato, 'b');
 
 // 4 jogadores: 6 jogos na fase 1, sem semis, final entre 1º e 2º. 7 no total.
 let v = Copa.criarCampeonato(['p', 'q', 'r', 's'], rnd);
