@@ -3,8 +3,8 @@
 
   const CHAVE = 'copa-transformacao-digital';
   // Preencha para sincronizar entre navegadores (veja README). Vazio = só localStorage.
-  const SUPABASE_URL = '';
-  const SUPABASE_KEY = '';
+  const SUPABASE_URL = 'https://unabcytnwybbisbjxbvb.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_4sNESbIMalDllRDc1Rl7cw_j9ZGA4dr';
   const NOMES_INICIAIS = ['Pedro', 'Isaque', 'Gustavo'];
   const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 
