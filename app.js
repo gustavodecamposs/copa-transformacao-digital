@@ -677,8 +677,9 @@
   function cartaoFinal(c, atualId, rolar, vivo) {
     const n = c.participantes.length;
     const f = c.final;
-    const vagaA = f && f.a ? slot(f.a, rolar, chegou(vivo, f, 'a')) : (n === 3 ? '1º da Fase 1' : 'Vencedor da semi 1');
-    const vagaB = f && f.b ? slot(f.b, rolar, chegou(vivo, f, 'b')) : (n === 3 ? '2º da Fase 1' : 'Vencedor da semi 2');
+    const direta = n <= 4; // até 4 jogadores não há semi: a final é 1º × 2º da fase 1
+    const vagaA = f && f.a ? slot(f.a, rolar, chegou(vivo, f, 'a')) : (direta ? '1º da Fase 1' : 'Vencedor da semi 1');
+    const vagaB = f && f.b ? slot(f.b, rolar, chegou(vivo, f, 'b')) : (direta ? '2º da Fase 1' : 'Vencedor da semi 2');
     const emJogo = f && f.id === atualId;
     return '' +
       '<article class="cartao cartao-final' + (emJogo ? ' jogando' : '') + clsAcabou(vivo, f) + '">' +
